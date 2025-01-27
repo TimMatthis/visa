@@ -1,20 +1,22 @@
 <?php
-define('DB_HOST', 'localhost');
-define('DB_USER', 'visa');
-define('DB_PASS', 'visa');
-define('DB_NAME', 'visas');
-
-
 try {
+    $host = 'localhost';
+    $dbname = 'visas';
+    $username = 'visa';
+    $password = 'visa';
+    
     $pdo = new PDO(
-        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8",
-        DB_USER,
-        DB_PASS
+        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+        $username,
+        $password,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]
     );
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch(PDOException $e) {
-    echo "Connection failed: " . $e->getMessage() . "<br>";
-    echo "Error code: " . $e->getCode() . "<br>";
-    exit;
+    error_log("Connection failed: " . $e->getMessage());
+    die("Connection failed: " . $e->getMessage());
 }
 ?> 

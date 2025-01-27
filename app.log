@@ -1,0 +1,1 @@
+Connection successful to database: visasExecuting query: SELECT * FROM predictions WHERE id = ?Connection successful to database: visas

@@ -23,6 +23,8 @@ define('IMPORT_TYPES', [
     ]
 ]);
 
+require_once __DIR__ . '/../config/database.php';
+
 // #1 - handleFileUpload
 function handleFileUpload($file) {
     $validation = validateImportFile($file);
@@ -653,6 +655,8 @@ function getVisaQueueSummary($visa_type_id) {
     global $pdo;
     
     try {
+        error_log("[getVisaQueueSummary] Starting for visa_type_id: " . $visa_type_id);
+        
         $stmt = $pdo->prepare("
             WITH LatestUpdate AS (
                 SELECT MAX(update_month) as latest_update
@@ -674,6 +678,13 @@ function getVisaQueueSummary($visa_type_id) {
         $stmt->execute([$visa_type_id, $visa_type_id]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         
+        error_log("[getVisaQueueSummary] Results: " . print_r($result, true));
+        
+        if (!$result) {
+            error_log("No queue summary data found for visa_type_id: " . $visa_type_id);
+            return null;
+        }
+        
         return [
             'total_on_hand' => (int)$result['total_on_hand'],
             'last_updated' => $result['last_updated'],
@@ -681,7 +692,7 @@ function getVisaQueueSummary($visa_type_id) {
         ];
         
     } catch (PDOException $e) {
-        error_log("Error getting visa queue summary: " . $e->getMessage());
+        error_log("[getVisaQueueSummary] Error: " . $e->getMessage());
         return null;
     }
 }
@@ -731,10 +742,15 @@ function getVisaProcessingRates($visa_type_id) {
     global $pdo;
     
     try {
+        error_log("[getVisaProcessingRates] Starting for visa_type_id: " . $visa_type_id);
         // Get allocations first
         $allocations = getVisaAllocations($visa_type_id);
+        error_log("Allocations for processing rates: " . print_r($allocations, true));
         $current_allocation = $allocations ? $allocations['current_allocation'] : 0;
         $previous_allocation = $allocations ? $allocations['previous_allocation'] : 0;
+
+        error_log("Current allocation: " . $current_allocation);
+        error_log("Previous allocation: " . $previous_allocation);
 
         $stmt = $pdo->prepare("
             WITH ConsecutiveUpdates AS (
@@ -816,16 +832,19 @@ function getVisaProcessingRates($visa_type_id) {
         ");
         
         $stmt->execute([
-            $visa_type_id,           // For the first WHERE clause
-            $current_allocation,      // For annual_allocation
-            $previous_allocation,     // For previous_allocation
-            $current_allocation      // For remaining_quota calculation
+            $visa_type_id,
+            $current_allocation,
+            $previous_allocation,
+            $current_allocation
         ]);
         
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        error_log("[getVisaProcessingRates] Results: " . print_r($results, true));
+        return $results;
         
     } catch (PDOException $e) {
-        error_log("Error getting visa processing rates: " . $e->getMessage());
+        error_log("[getVisaProcessingRates] Error: " . $e->getMessage());
         return null;
     }
 }
@@ -949,6 +968,8 @@ function getVisaAllocations($visa_type_id) {
     $currentFY = getCurrentFinancialYear();
     
     try {
+        error_log("[getVisaAllocations] Starting for visa_type_id: " . $visa_type_id . " in FY: " . $currentFY);
+        
         $stmt = $pdo->prepare("
             SELECT 
                 current.allocation_amount as current_allocation,
@@ -962,9 +983,11 @@ function getVisaAllocations($visa_type_id) {
         ");
         
         $stmt->execute([$visa_type_id, $currentFY]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        error_log("[getVisaAllocations] Results: " . print_r($result, true));
+        return $result;
     } catch (PDOException $e) {
-        error_log("Error getting visa allocations: " . $e->getMessage());
+        error_log("[getVisaAllocations] Error: " . $e->getMessage());
         return null;
     }
 }
@@ -1026,19 +1049,22 @@ function getMonthlyVisaAges($visa_type_id) {
                 SELECT 
                     qu1.update_month as processing_month,
                     l.lodged_month,
+                    l.first_count_volume as initial_lodgements,
+                    qu1.queue_count as current_count,
+                    qu2.queue_count as previous_count,
                     (qu2.queue_count - qu1.queue_count) as visas_processed,
                     TIMESTAMPDIFF(MONTH, l.lodged_month, qu1.update_month) as age_in_months
                 FROM visa_queue_updates qu1
                 JOIN visa_queue_updates qu2 ON qu1.lodged_month_id = qu2.lodged_month_id
+                    AND qu2.update_month = (
+                        SELECT MAX(update_month)
+                        FROM visa_queue_updates qu3
+                        WHERE qu3.lodged_month_id = qu1.lodged_month_id
+                        AND qu3.update_month < qu1.update_month
+                    )
                 JOIN visa_lodgements l ON l.id = qu1.lodged_month_id
                 WHERE l.visa_type_id = ?
-                AND qu2.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates qu3
-                    WHERE qu3.lodged_month_id = qu1.lodged_month_id
-                    AND qu3.update_month < qu1.update_month
-                )
-                AND (qu2.queue_count - qu1.queue_count) > 0
+                AND (qu2.queue_count - qu1.queue_count) > 0  -- Only include months where processing occurred
             ),
             MonthlyAverages AS (
                 SELECT 
@@ -1047,49 +1073,11 @@ function getMonthlyVisaAges($visa_type_id) {
                     SUM(visas_processed * age_in_months) / SUM(visas_processed) as average_age,
                     MIN(age_in_months) as youngest_visa,
                     MAX(age_in_months) as oldest_visa,
-                    (SELECT 
-                        CASE 
-                            -- If we have 3 or more months of data, use last 3 months
-                            WHEN EXISTS (
-                                SELECT 1 FROM ProcessedVisas p3 
-                                WHERE p3.processing_month <= pv1.processing_month 
-                                AND p3.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 2 MONTH)
-                                LIMIT 3
-                            ) THEN (
-                                SELECT SUM(total_processed) / 3
-                                FROM (
-                                    SELECT total_processed
-                                    FROM ProcessedVisas p4 
-                                    WHERE p4.processing_month <= pv1.processing_month 
-                                    AND p4.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 2 MONTH)
-                                    GROUP BY processing_month
-                                    ORDER BY processing_month DESC
-                                    LIMIT 3
-                                ) last_three
-                            )
-                            -- If we have 2 months of data
-                            WHEN EXISTS (
-                                SELECT 1 FROM ProcessedVisas p3 
-                                WHERE p3.processing_month <= pv1.processing_month 
-                                AND p3.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 1 MONTH)
-                                LIMIT 2
-                            ) THEN (
-                                SELECT SUM(total_processed) / 2
-                                FROM (
-                                    SELECT total_processed
-                                    FROM ProcessedVisas p4 
-                                    WHERE p4.processing_month <= pv1.processing_month 
-                                    AND p4.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 1 MONTH)
-                                    GROUP BY processing_month
-                                    ORDER BY processing_month DESC
-                                    LIMIT 2
-                                ) last_two
-                            )
-                            -- If we only have 1 month of data
-                            ELSE total_processed
-                        END
-                     FROM ProcessedVisas pv1
-                     WHERE pv1.processing_month = pv1.processing_month
+                    -- Calculate 3-month moving average
+                    (SELECT SUM(p2.visas_processed) / COUNT(DISTINCT p2.processing_month)
+                     FROM ProcessedVisas p2
+                     WHERE p2.processing_month <= pv1.processing_month
+                     AND p2.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 2 MONTH)
                     ) as weighted_average
                 FROM ProcessedVisas pv1
                 GROUP BY processing_month
@@ -1104,6 +1092,196 @@ function getMonthlyVisaAges($visa_type_id) {
     } catch (PDOException $e) {
         error_log("Error calculating monthly visa ages: " . $e->getMessage());
         return null;
+    }
+}
+
+// Add these functions to functions.php
+
+function calculateVisaPrediction($visa_type_id) {
+    global $pdo;
+    
+    try {
+        // Check data availability first
+        $dataAvailability = checkDataAvailability($visa_type_id);
+        
+        // Get the necessary data
+        $processingRates = getVisaProcessingRates($visa_type_id);
+        $allocations = getVisaAllocations($visa_type_id);
+        $queueSummary = getVisaQueueSummary($visa_type_id);
+        
+        if (!$processingRates || !$allocations || !$queueSummary) {
+            return [
+                'status' => 'error',
+                'message' => 'Unable to calculate timeline prediction. Insufficient processing data available.',
+                'debug_info' => [
+                    'data_availability' => $dataAvailability,
+                    'processing_rates' => $processingRates,
+                    'allocations' => $allocations,
+                    'queue_summary' => $queueSummary
+                ]
+            ];
+        }
+
+        error_log("Starting calculations with:");
+        error_log("Current allocation: " . $allocations['current_allocation']);
+        error_log("Yearly total from processing rates: " . $processingRates[0]['yearly_total']);
+
+        // Calculate remaining places
+        $remainingPlaces = $allocations['current_allocation'] - $processingRates[0]['yearly_total'];
+        error_log("Calculated remaining places: " . $remainingPlaces);
+
+        $priorityQuota = $remainingPlaces * 0.21; // 21% priority quota
+        error_log("Calculated priority quota: " . $priorityQuota);
+
+        $remainingNonPriorityPlaces = $remainingPlaces - $priorityQuota;
+        error_log("Calculated remaining non-priority places: " . $remainingNonPriorityPlaces);
+        
+        // Get queue position
+        $totalAhead = $queueSummary['total_on_hand'];
+        error_log("Total applications ahead: " . $totalAhead);
+        
+        // Get processing rate from last 3 months
+        $threeMonthAverage = $processingRates[0]['last_three_months_average'];
+        error_log("Three month average processing rate: " . $threeMonthAverage);
+        
+        // Adjust processing rate for priority cases
+        $adjustedRate = $threeMonthAverage * 0.79; // 79% for non-priority
+        error_log("Adjusted processing rate: " . $adjustedRate);
+        
+        // Calculate months to process
+        $monthsToProcess = ceil($totalAhead / $adjustedRate);
+        error_log("Calculated months to process: " . $monthsToProcess);
+        
+        // Get last update date
+        $lastUpdateDate = new DateTime($queueSummary['last_updated']);
+        
+        // Calculate predicted date
+        $predictedDate = clone $lastUpdateDate;
+        $predictedDate->modify("+$monthsToProcess months");
+
+        return [
+            'status' => 'success',
+            'predicted_date' => $predictedDate->format('Y-m-d'),
+            'calculation' => [
+                'three_month_average' => $threeMonthAverage,
+                'adjusted_rate' => $adjustedRate,
+                'months_to_process' => $monthsToProcess,
+                'last_update' => $lastUpdateDate->format('Y-m-d'),
+                'total_ahead' => $totalAhead
+            ],
+            'debug' => [
+                'processingRates' => $processingRates,
+                'allocations' => $allocations,
+                'queueSummary' => $queueSummary,
+                'remainingPlaces' => $remainingPlaces,
+                'priorityQuota' => $priorityQuota,
+                'remainingNonPriorityPlaces' => $remainingNonPriorityPlaces,
+                'totalAhead' => $totalAhead,
+                'threeMonthAverage' => $threeMonthAverage,
+                'adjustedRate' => $adjustedRate,
+                'monthsToProcess' => $monthsToProcess
+            ]
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error calculating visa prediction: " . $e->getMessage());
+        return [
+            'status' => 'error',
+            'message' => 'An error occurred while calculating the prediction.'
+        ];
+    }
+}
+
+function checkDataAvailability($visa_type_id) {
+    global $pdo;
+    
+    try {
+        // Check visa_allocations
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM visa_allocations WHERE visa_type_id = ?");
+        $stmt->execute([$visa_type_id]);
+        $allocationsCount = $stmt->fetchColumn();
+        error_log("Found {$allocationsCount} allocation records for visa_type_id {$visa_type_id}");
+
+        // Check visa_lodgements
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM visa_lodgements WHERE visa_type_id = ?");
+        $stmt->execute([$visa_type_id]);
+        $lodgementsCount = $stmt->fetchColumn();
+        error_log("Found {$lodgementsCount} lodgement records for visa_type_id {$visa_type_id}");
+
+        // Check visa_queue_updates
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) 
+            FROM visa_queue_updates qu
+            JOIN visa_lodgements l ON l.id = qu.lodged_month_id
+            WHERE l.visa_type_id = ?
+        ");
+        $stmt->execute([$visa_type_id]);
+        $updatesCount = $stmt->fetchColumn();
+        error_log("Found {$updatesCount} queue update records for visa_type_id {$visa_type_id}");
+
+        return [
+            'allocations' => $allocationsCount,
+            'lodgements' => $lodgementsCount,
+            'updates' => $updatesCount
+        ];
+    } catch (PDOException $e) {
+        error_log("Error checking data availability: " . $e->getMessage());
+        return null;
+    }
+}
+
+// Add a new function to handle the prediction request
+function handleVisaPredictionRequest($visa_type) {
+    global $pdo;
+    
+    try {
+        error_log("handleVisaPredictionRequest received visa_type: " . $visa_type);
+        
+        // Get visa type ID if a string was passed
+        if ($visa_type && !is_numeric($visa_type)) {
+            $stmt = $pdo->prepare("SELECT id FROM visa_types WHERE visa_type = ?");
+            $stmt->execute([$visa_type]);
+            $visa_type_id = $stmt->fetchColumn();
+            error_log("Converted visa type to ID: " . $visa_type_id);
+            
+            // Debug: Check if the visa type exists
+            if (!$visa_type_id) {
+                error_log("No visa type found for: " . $visa_type);
+                return [
+                    'status' => 'error',
+                    'message' => 'Visa type not found in database'
+                ];
+            }
+        } else {
+            $visa_type_id = $visa_type;
+            error_log("Using numeric visa_type_id: " . $visa_type_id);
+        }
+
+        // Debug: Check if visa type exists in visa_types table
+        $stmt = $pdo->prepare("SELECT visa_type FROM visa_types WHERE id = ?");
+        $stmt->execute([$visa_type_id]);
+        $visaTypeCheck = $stmt->fetch();
+        error_log("Visa type check result: " . print_r($visaTypeCheck, true));
+
+        if (!$visa_type_id) {
+            return [
+                'status' => 'error',
+                'message' => 'Invalid visa type'
+            ];
+        }
+
+        // Debug: Check data availability before prediction
+        $dataCheck = checkDataAvailability($visa_type_id);
+        error_log("Data availability check before prediction: " . print_r($dataCheck, true));
+
+        return calculateVisaPrediction($visa_type_id);
+
+    } catch (Exception $e) {
+        error_log("Error handling prediction request: " . $e->getMessage());
+        return [
+            'status' => 'error',
+            'message' => 'An error occurred while calculating the prediction: ' . $e->getMessage()
+        ];
     }
 }
 ?> 

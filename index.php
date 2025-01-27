@@ -15,6 +15,13 @@ if (!$visa_types) {
 // Add error reporting for debugging
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
+
+// Near the top of the file, after database connection
+$prediction = null;
+if (isset($_GET['visa_type'])) {
+    $visa_type_id = $_GET['visa_type'];
+    $prediction = calculateVisaPrediction($visa_type_id);
+}
 ?>
 
 <!DOCTYPE html>
@@ -105,9 +112,34 @@ ini_set('display_errors', 1);
         }
 
         .allocation-buffer h3 {
-            font-size: 1.2rem;
-            margin-bottom: 1rem;
-            color: #1e293b;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            margin: -1rem -1rem 1rem -1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .allocation-buffer h3:after {
+            content: "▼";
+            font-size: 0.8em;
+            transition: transform 0.3s ease;
+        }
+
+        .allocation-buffer.collapsed h3:after {
+            transform: rotate(-90deg);
+        }
+
+        .allocation-buffer .buffer-details {
+            transition: max-height 0.3s ease-out;
+            overflow: hidden;
+            max-height: 1000px; /* Adjust based on content */
+        }
+
+        .allocation-buffer.collapsed .buffer-details {
+            max-height: 0;
         }
 
         .buffer-details {
@@ -408,6 +440,241 @@ ini_set('display_errors', 1);
         .monthly-ages-table tr:hover {
             background: #f8fafc;
         }
+
+        .prediction-explanation {
+            padding: 1rem 0;
+        }
+
+        .step-container {
+            margin: 1.5rem 0;
+            padding: 1.25rem;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 4px solid #64748b;
+        }
+
+        .step-container h4 {
+            color: #1e293b;
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .step-container ul {
+            list-style: none;
+            padding-left: 1rem;
+            margin: 0.75rem 0;
+        }
+
+        .step-container li {
+            color: #475569;
+            margin: 0.5rem 0;
+            position: relative;
+        }
+
+        .step-container li:before {
+            content: "•";
+            color: #64748b;
+            position: absolute;
+            left: -1rem;
+        }
+
+        .step-conclusion {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .step-conclusion.positive {
+            background: #f0fdf4;
+            color: #166534;
+            border-left: 3px solid #16a34a;
+        }
+
+        .step-conclusion.negative {
+            background: #fef2f2;
+            color: #991b1b;
+            border-left: 3px solid #dc2626;
+        }
+
+        .info-banner {
+            background: #f8fafc;
+            border-left: 4px solid #3b82f6;
+            padding: 1rem 1.25rem;
+            margin-bottom: 2rem;
+            border-radius: 6px;
+            color: #1e293b;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .info-banner strong {
+            color: #1e40af;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .collapsible-card h3 {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            margin: -1rem -1rem 1rem -1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .collapsible-card h3:after {
+            content: "▼";
+            font-size: 0.8em;
+            transition: transform 0.3s ease;
+        }
+
+        .collapsible-card.collapsed h3:after {
+            transform: rotate(-90deg);
+        }
+
+        .collapsible-card .card-content {
+            transition: max-height 0.3s ease-out;
+            overflow: hidden;
+            max-height: 2000px; /* Adjust based on content */
+        }
+
+        .collapsible-card.collapsed .card-content {
+            max-height: 0;
+        }
+
+        .result-highlight {
+            margin: 1.5rem -1.5rem -1.5rem;
+            padding: 1.5rem;
+            text-align: center;
+            border-top: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .result-highlight.positive {
+            background: #ecfdf5;
+        }
+
+        .result-highlight.negative {
+            background: #fef2f2;
+        }
+
+        .result-status {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .result-status.positive {
+            color: #059669;
+        }
+
+        .result-status.negative {
+            color: #dc2626;
+        }
+
+        .result-icon {
+            font-size: 2rem;
+        }
+
+        .result-numbers {
+            font-size: 0.9rem;
+            color: #64748b;
+            margin-bottom: 1rem;
+        }
+
+        .result-message {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .result-message.positive {
+            color: #065f46;
+        }
+
+        .result-message.negative {
+            color: #991b1b;
+        }
+
+        .trend-analysis {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            line-height: 1.4;
+        }
+
+        .trend-analysis.positive {
+            background-color: #f0fdf4;
+            border: 1px solid #86efac;
+            color: #166534;
+        }
+
+        .trend-analysis.negative {
+            background-color: #fef2f2;
+            border: 1px solid #fca5a5;
+            color: #991b1b;
+        }
+
+        .trend-icon {
+            margin-right: 0.5rem;
+        }
+
+        .debug-calculations {
+            background: #f8fafc;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            font-family: monospace;
+        }
+        
+        .debug-calculations pre {
+            background: #fff;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            max-height: 200px;
+        }
+        
+        .debug-calculations h4 {
+            margin: 1.5rem 0 0.5rem;
+            color: #2d3748;
+        }
+        
+        .debug-calculations ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .debug-calculations li {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: #fff;
+            border-radius: 4px;
+        }
+
+        /* Add this CSS to ensure proper positioning */
+        .predictor-section {
+            display: flex;
+            flex-direction: column; /* Ensure items stack vertically */
+            justify-content: flex-start; /* Align items to the start */
+            margin-top: 2rem; /* Add some space above */
+        }
+
+        /* Add this CSS to hide the predictor section initially */
+        .predictor-section {
+            display: none; /* Hide by default */
+        }
+        .predictor-section.active {
+            display: flex; /* Show when active */
+        }
     </style>
 </head>
 <body>
@@ -429,9 +696,19 @@ ini_set('display_errors', 1);
 
         <!-- Predictor Tab -->
         <div id="predictor" class="main-tab-content active">
-            <section class="predictions-section">
+            <section class="predictions-section predictor-section active">
                 <h2>Select Your Visa Details</h2>
                 <form id="visa-details-form" onsubmit="handleFormSubmit(event)" class="visa-form">
+                    <div class="info-banner">
+                        <strong>Important Note:</strong>
+                        This tool is designed to help non-priority applicants understand when they might get their visa. 
+                        We do not provide predictions for priority cases as they typically have shorter processing times.
+                        <p style="margin-top: 0.75rem; font-size: 0.9rem; color: #475569;">
+                            This is a free service that aims to provide forward-looking predictions based on current processing data, 
+                            unlike other resources (including official government estimates) which are typically backward-looking. 
+                            While we strive for accuracy, these predictions are estimates only.
+                        </p>
+                    </div>
                     <div class="form-group">
                         <label for="visa_subclass">Visa Subclass:</label>
                         <select name="visa_subclass" id="visa_subclass" required>
@@ -455,6 +732,19 @@ ini_set('display_errors', 1);
                     <button type="submit" class="submit-btn">View Processing Statistics</button>
                 </form>
             </section>
+
+            <!-- First prediction section -->
+            <div class="predictor-section">
+                <h2>When is my Visa likely to be processed?</h2>
+                <div id="prediction-result-main">
+                    <?php if ($prediction): ?>
+                        <script>
+                            document.getElementById('prediction-result-main').innerHTML = 
+                                generatePredictionHTML(<?php echo json_encode($prediction); ?>);
+                        </script>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
 
         <!-- Statistics Tab -->
@@ -478,6 +768,8 @@ ini_set('display_errors', 1);
         </div>
     </div>
 
+    <div id="debug-info" class="debug-section"></div>
+
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         // Initialize flatpickr with specific options
@@ -497,12 +789,14 @@ ini_set('display_errors', 1);
         const visaType = document.getElementById('visa_subclass').value;
         const applicationDate = document.getElementById('application_date').value;
         
+        console.log('Submitting form with:', { visaType, applicationDate });
+        
         if (!visaType || !applicationDate) {
             alert('Please select both visa type and application date');
             return;
         }
 
-        // Update the lodgement info display
+        // Update the lodgement info display with the selected visa type
         document.getElementById('lodgement-info').style.display = 'block';
         document.getElementById('selected-lodgement-date').textContent = 
             new Date(applicationDate).toLocaleDateString('en-US', { 
@@ -510,7 +804,11 @@ ini_set('display_errors', 1);
                 month: 'long', 
                 year: 'numeric' 
             });
-
+        
+        // Append the selected visa type
+        const visaTypeText = document.getElementById('visa_subclass').options[document.getElementById('visa_subclass').selectedIndex].text;
+        document.getElementById('selected-lodgement-date').textContent += ` (Visa Type: ${visaTypeText})`;
+        
         // Switch to statistics tab
         const statsTab = document.querySelector('[onclick="openMainTab(event, \'statistics\')"]');
         openMainTab({ currentTarget: statsTab }, 'statistics');
@@ -531,8 +829,19 @@ ini_set('display_errors', 1);
             button.classList.remove("active");
         }
 
-        document.getElementById(tabName).style.display = "block";
-        document.getElementById(tabName).classList.add("active");
+        const activeTab = document.getElementById(tabName);
+        activeTab.style.display = "block";
+        activeTab.classList.add("active");
+
+        // Show the predictor section if the predictor tab is clicked
+        if (tabName === 'predictor') {
+            const predictorSection = activeTab.querySelector('.predictor-section');
+            predictorSection.classList.add('active'); // Show the predictor section
+        } else {
+            const predictorSection = document.querySelector('.predictor-section');
+            predictorSection.classList.remove('active'); // Hide the predictor section
+        }
+
         evt.currentTarget.classList.add("active");
     }
 
@@ -664,9 +973,24 @@ ini_set('display_errors', 1);
         let timelineText = "";
         let timelineClass = "neutral";
         
+        debugLog('Timeline Calculation', {
+            hasQueuePosition: !!data.queue_position,
+            lastThreeMonthsAverage: data.last_three_months_average,
+            monthlyRate: Number(data.last_three_months_average || 0),
+            totalAhead,
+            priorityAllocation
+        });
+        
         if (data.queue_position && data.last_three_months_average) {
             const totalToProcess = totalAhead + priorityAllocation;
             const monthlyRate = Number(data.last_three_months_average || 0);
+            
+            debugLog('Timeline Details', {
+                totalToProcess,
+                monthlyRate,
+                monthsToProcess: Math.ceil(totalToProcess / monthlyRate),
+                lastUpdateDate: data.last_updated
+            });
             
             if (monthlyRate > 0) {
                 const monthsToProcess = Math.ceil(totalToProcess / monthlyRate);
@@ -739,132 +1063,190 @@ ini_set('display_errors', 1);
         // Add an explanation at the top of the tooltip
         const tooltipContent = `Monthly Breakdown of Applications Ahead:\n${monthlyBreakdown}`;
 
+        // Calculate monthly processing data
+        let monthlyProcessingData = '';
+        if (data.processing_rates) {
+            const processingByMonth = data.processing_rates
+                .filter(rate => rate.processing_year === data.financial_year)
+                .map(rate => ({
+                    month: new Date(rate.current_month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                    processed: Math.abs(rate.visas_processed),
+                    runningTotal: 0,
+                    monthlyAverage: 0
+                }))
+                .reverse(); // Put in chronological order
+
+            // Calculate running totals and averages
+            let runningTotal = 0;
+            let monthNumber = 0;
+            processingByMonth.forEach(month => {
+                monthNumber++;
+                runningTotal += month.processed;
+                month.runningTotal = runningTotal;
+                month.monthlyAverage = Math.round(runningTotal / monthNumber);
+            });
+
+            // Create debug HTML
+            monthlyProcessingData = `
+                <div class="debug-section collapsible-card" id="processing-debug">
+                    <h3 onclick="toggleCard('processing-debug')">Processing Rate Analysis (Debug)</h3>
+                    <div class="card-content">
+                        <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; padding: 0.5rem; border-bottom: 2px solid #e2e8f0;">Month</th>
+                                    <th style="text-align: right; padding: 0.5rem; border-bottom: 2px solid #e2e8f0;">Visas Processed</th>
+                                    <th style="text-align: right; padding: 0.5rem; border-bottom: 2px solid #e2e8f0;">Running Total</th>
+                                    <th style="text-align: right; padding: 0.5rem; border-bottom: 2px solid #e2e8f0;">Monthly Average</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${processingByMonth.map(month => `
+                                    <tr>
+                                        <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${month.month}</td>
+                                        <td style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${month.processed.toLocaleString()}</td>
+                                        <td style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${month.runningTotal.toLocaleString()}</td>
+                                        <td style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${month.monthlyAverage.toLocaleString()}/month</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
         return `
             <div class="visa-summary-card">
                 <div class="summary-stats">
-                    <div class="prediction-summary ${timelineClass}">
-                        <h3>Processing Prediction</h3>
-                        <p>Based on current processing rates and your queue position, we believe you 
-                        ${timelineClass === 'positive' ? 'will' : 
-                          timelineClass === 'negative' ? 'will not' : 
-                          'may'} receive your visa this financial year.</p>
-                        ${timelineText || `
-                            <p class="no-data">Unable to calculate timeline prediction. 
-                            Insufficient processing data available.</p>
-                        `}
-                    </div>
-                    
-                    <div class="allocation-buffer ${buffer > 0 ? 'positive' : 'negative'}">
-                        <h3>Will my Visa be granted this Financial Year?</h3>
-                        <div class="buffer-details">
-                            <div class="buffer-calculation">
-                                <div class="calc-row">
-                                    <span class="label">Annual Allocation:</span>
-                                    <span class="value">${Number(annualAllocation).toLocaleString()}</span>
+                    <div class="prediction-summary ${timelineClass} collapsible-card" id="timeline-understanding">
+                        <h3 onclick="toggleCard('timeline-understanding')">Understanding Your Visa Timeline</h3>
+                        <div class="card-content">
+                            <div class="prediction-explanation">
+                                <p>We analyze your visa timeline in two steps:</p>
+                                
+                                <div class="step-container">
+                                    <h4>Step 1: Available Places This Year</h4>
+                                    <p>We first check if there are enough visa places remaining in this financial year:</p>
+                                    <ul>
+                                        <li>Start with the total annual allocation (${Number(annualAllocation).toLocaleString()} places)</li>
+                                        <li>Subtract visas already granted (${Number(yearlyTotal).toLocaleString()} places)</li>
+                                        <li>Reserve places for priority applications (${Number(priorityAllocation).toLocaleString()} places)</li>
+                                        <li>Compare remaining places (${Number(remainingNonPriorityPlaces).toLocaleString()}) with applications ahead of you (${totalAhead.toLocaleString()})</li>
+                                    </ul>
+                                    
                                 </div>
-                                <div class="calc-row">
-                                    <span class="label">Visas Granted:</span>
-                                    <span class="value">-${Number(yearlyTotal).toLocaleString()}</span>
-                                </div>
-                                <div class="calc-row">
-                                    <span class="label">Remaining Visas for the Year:</span>
-                                    <span class="value">${Number(annualAllocation - yearlyTotal).toLocaleString()}</span>
-                                </div>
-                                <div class="calc-row">
-                                    <span class="label">Priority Allocation:</span>
-                                    <span class="value">-${Number(priorityAllocation).toLocaleString()}</span>
-                                </div>
-                                <div class="calc-row">
-                                    <span class="label">Non-Priority Places Remaining:</span>
-                                    <span class="value">${Number(remainingNonPriorityPlaces).toLocaleString()}</span>
-                                </div>
-                                <div class="calc-row">
-                                    <span class="label">Applications Ahead:</span>
-                                    <span class="value tooltip-trigger" 
-                                          data-tooltip="${tooltipContent}"
-                                          title="Click to see monthly breakdown">
-                                        ${totalAhead.toLocaleString()}
-                                        <span class="info-icon">ⓘ</span>
-                                    </span>
-                                </div>
-                                <div class="calc-row total">
-                                    <span class="label">Result:</span>
-                                    <span class="value">
-                                        ${remainingNonPriorityPlaces > totalAhead ? 'LIKELY' : 'UNLIKELY'}
-                                        <small style="font-size: 0.8em; color: #666;">
-                                            (${Number(remainingNonPriorityPlaces).toLocaleString()} vs ${Number(totalAhead).toLocaleString()})
-                                        </small>
-                                    </span>
+
+                                <div class="step-container">
+                                    <h4>Step 2: Processing Timeline</h4>
+                                    <p>If there are enough places, we then estimate when your application will reach the front of the queue:</p>
+                                    ${timelineText || `
+                                        <p class="no-data">Currently unable to calculate processing timeline due to insufficient data.</p>
+                                    `}
                                 </div>
                             </div>
-                            <p class="buffer-summary">${bufferText}</p>
                         </div>
                     </div>
                     
-                    <div class="timeline-analysis ${timelineClass}">
-                        <h3>When is my Visa likley to be processed?</h3>
-                        ${timelineText || `
-                            <p class="no-data">Unable to calculate timeline prediction. 
-                            Insufficient processing data available.</p>
-                        `}
+                    <div class="allocation-buffer ${buffer > 0 ? 'positive' : 'negative'} collapsible-card" id="allocation-buffer">
+                        <h3 onclick="toggleCard('allocation-buffer')">Will my Visa be granted this Financial Year?</h3>
+                        <div class="card-content">
+                            <div class="buffer-details">
+                                <div class="buffer-calculation">
+                                    <div class="result-highlight ${remainingNonPriorityPlaces > totalAhead ? 'positive' : 'negative'}">
+                                        <div class="result-status ${remainingNonPriorityPlaces > totalAhead ? 'positive' : 'negative'}">
+                                            ${remainingNonPriorityPlaces > totalAhead ? 
+                                                '<span class="result-icon">🎉</span> GOOD NEWS!' : 
+                                                '<span class="result-icon">⚠️</span> IMPORTANT UPDATE'}
+                                        </div>
+                                        <div class="result-numbers">
+                                            Available Places: ${Number(remainingNonPriorityPlaces).toLocaleString()} / Applications Ahead: ${totalAhead.toLocaleString()}
+                                        </div>
+                                        <div class="result-message ${remainingNonPriorityPlaces > totalAhead ? 'positive' : 'negative'}">
+                                            ${remainingNonPriorityPlaces > totalAhead ? 
+                                                `Based on current allocation numbers, there are <strong>${remainingNonPriorityPlaces.toLocaleString()}</strong> visa places available for non-priority applications this financial year. With <strong><span class="tooltip-trigger" data-tooltip="${tooltipContent}" title="Click to see monthly breakdown">${totalAhead.toLocaleString()}<span class="info-icon">ⓘ</span></span></strong> applications ahead of yours, you have a very good chance of receiving your visa this financial year.` :
+                                                `Currently there are <strong>${remainingNonPriorityPlaces.toLocaleString()}</strong> visa places remaining for non-priority applications this financial year. With <strong><span class="tooltip-trigger" data-tooltip="${tooltipContent}" title="Click to see monthly breakdown">${totalAhead.toLocaleString()}<span class="info-icon">ⓘ</span></span></strong> applications ahead of yours, you may need to prepare for the possibility of waiting until next financial year unless processing rates increase significantly.`
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="buffer-summary">${bufferText}</p>
+                                
+                                <!-- Move the processing-stats-grid here -->
+                                <div class="processing-stats-grid">
+                                    <div class="stat-box">
+                                        <label>Annual Allocation</label>
+                                        <span class="value">
+                                            ${Number(data.annual_allocation || 0).toLocaleString()}
+                                            ${data.previous_allocation ? `
+                                                <small class="previous-allocation">
+                                                    (${Number(data.previous_allocation).toLocaleString()} previous year)
+                                                </small>
+                                            ` : ''}
+                                        </span>
+                                        <small>Total places for FY${data.financial_year}-${Number(data.financial_year) + 1}</small>
+                                    </div>
+
+                                    <div class="stat-box">
+                                        <label>Visas Processed</label>
+                                        <span class="value">${Number(yearlyTotal).toLocaleString()}</span>
+                                        <small>Total processed this financial year</small>
+                                    </div>
+
+                                    <div class="stat-box highlight-secondary">
+                                        <label>Places Remaining</label>
+                                        <span class="value">
+                                            ${Number(remainingNonPriorityPlaces).toLocaleString()}
+                                            <small style="font-size: 0.8em; color: #666;">
+                                                (${Number(annualAllocation).toLocaleString()} - ${Number(yearlyTotal).toLocaleString()})
+                                            </small>
+                                        </span>
+                                        <small>Visas left for this financial year</small>
+                                    </div>
+
+                                    ${data.queue_position ? `
+                                        <div class="stat-box highlight-secondary">
+                                            <label>Applications Ahead</label>
+                                            <span class="value tooltip-trigger" data-tooltip="${tooltipContent}" title="Click to see monthly breakdown">
+                                                ${totalAhead.toLocaleString()}
+                                                <span class="info-icon">ⓘ</span>
+                                            </span>
+                                            <small>Total applications ahead of you</small>
+                                        </div>
+
+                                        <div class="stat-box highlight-secondary">
+                                            <label>Priority Cases</label>
+                                            <span class="value">${priorityAllocation.toLocaleString()}</span>
+                                            <small>Estimated priority cases ahead of you</small>
+                                        </div>
+
+                                        <div class="stat-box">
+                                            <label>Visas On Hand</label>
+                                            <span class="value">${Number(data.total_on_hand).toLocaleString()}</span>
+                                            <small>As of ${new Date(data.last_updated).toLocaleDateString('en-US', { 
+                                                day: 'numeric', month: 'short', year: 'numeric' 
+                                            })}</small>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
                     </div>
-
-                    <div class="processing-stats-grid">
-                        <div class="stat-box">
-                            <label>Annual Allocation</label>
-                            <span class="value">
-                                ${Number(data.annual_allocation || 0).toLocaleString()}
-                                ${data.previous_allocation ? `
-                                    <small class="previous-allocation">
-                                        (${Number(data.previous_allocation).toLocaleString()} previous year)
-                                    </small>
-                                ` : ''}
-                            </span>
-                            <small>Total places for FY${data.financial_year}-${Number(data.financial_year) + 1}</small>
+                    
+                    <div class="timeline-analysis ${timelineClass} collapsible-card" id="processing-timeline">
+                        <h3 onclick="toggleCard('processing-timeline')">When is my Visa likely to be processed?</h3>
+                        <div class="card-content">
+                            ${timelineText || `
+                                <p class="no-data">Unable to calculate timeline prediction. 
+                                Insufficient processing data available.</p>
+                            `}
+                            
+                            <!-- Add monthly ages table here -->
+                            ${generateMonthlyAgesHTML(data.monthly_ages)}
                         </div>
-
-                        <div class="stat-box">
-                            <label>Visas Processed</label>
-                            <span class="value">${Number(yearlyTotal).toLocaleString()}</span>
-                            <small>Total processed this financial year</small>
-                        </div>
-
-                        <div class="stat-box highlight-secondary">
-                            <label>Places Remaining</label>
-                            <span class="value">
-                                ${Number(remainingNonPriorityPlaces).toLocaleString()}
-                                <small style="font-size: 0.8em; color: #666;">
-                                    (${Number(annualAllocation).toLocaleString()} - ${Number(yearlyTotal).toLocaleString()})
-                                </small>
-                            </span>
-                            <small>Visas left for this financial year</small>
-                        </div>
-
-                        ${data.queue_position ? `
-                            <div class="stat-box highlight-secondary">
-                                <label>Applications Ahead</label>
-                                <span class="value">${totalAhead.toLocaleString()}</span>
-                                <small>Total applications ahead of you</small>
-                            </div>
-
-                            <div class="stat-box highlight-secondary">
-                                <label>Priority Cases</label>
-                                <span class="value">${priorityAllocation.toLocaleString()}</span>
-                                <small>Estimated priority cases ahead of you</small>
-                            </div>
-
-                            <div class="stat-box">
-                                <label>Visas On Hand</label>
-                                <span class="value">${Number(data.total_on_hand).toLocaleString()}</span>
-                                <small>As of ${new Date(data.last_updated).toLocaleDateString('en-US', { 
-                                    day: 'numeric', month: 'short', year: 'numeric' 
-                                })}</small>
-                            </div>
-                        ` : ''}
                     </div>
 
                     ${generateProcessingRatesHTML(data.processing_rates)}
-                    ${generateMonthlyAgesHTML(data.monthly_ages)}
                 </div>
             </div>
         `;
@@ -912,37 +1294,81 @@ ini_set('display_errors', 1);
     function generateMonthlyAgesHTML(monthlyAges) {
         if (!monthlyAges || !monthlyAges.length) return '';
 
+        // Sort months with newest first
+        const sortedMonths = [...monthlyAges].sort((a, b) => 
+            new Date(b.processing_month) - new Date(a.processing_month)
+        );
+
+        // Calculate trend by comparing last 3 months
+        const last3Months = sortedMonths.slice(0, 3);
+        const trend = last3Months[0].weighted_average - last3Months[2].weighted_average;
+        const trendPercentage = ((trend / last3Months[2].weighted_average) * 100).toFixed(1);
+        
+        const trendAnalysis = trend > 0 ? 
+            `<div class="trend-analysis positive">
+                <span class="trend-icon">📈</span> Processing rate has increased by ${trendPercentage}% over the last 3 months, suggesting potential shorter waiting times.
+            </div>` :
+            `<div class="trend-analysis negative">
+                <span class="trend-icon">📉</span> Processing rate has decreased by ${Math.abs(trendPercentage)}% over the last 3 months, suggesting potential longer waiting times.
+            </div>`;
+
+        // Calculate the moving average for each month
+        const processedMonths = sortedMonths.map((month, index) => {
+            // Calculate the sum of visas processed from the current month backwards
+            let totalVisas = 0;
+            let monthsCount = 0;
+
+            for (let i = index; i < sortedMonths.length; i++) {
+                // Ensure we're adding numbers, not concatenating strings
+                totalVisas += Number(sortedMonths[i].total_processed);
+                monthsCount++;
+            }
+
+            // Calculate the average by dividing the total by the number of months considered
+            const averageRate = totalVisas / monthsCount;
+
+            // Return the month data with the calculated moving average and debug info
+            return {
+                ...month,
+                moving_average: averageRate,
+                debugInfo: `Total Visas: ${totalVisas}, Months Count: ${monthsCount}, Average Rate: ${averageRate}`
+            };
+        });
+
         return `
-            <div class="monthly-ages">
-                <h4>Monthly Processing Age Analysis</h4>
-                <div class="monthly-ages-table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Processing Month</th>
-                                <th>Visas Processed</th>
-                                <th>Average Age</th>
-                                <th>Age Range</th>
-                                <th>Monthly Average YTD</th>
-                                <th>3-Month Average</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${monthlyAges.map(month => `
+            <div class="monthly-ages collapsible-card" id="monthly-analysis">
+                <h3 onclick="toggleCard('monthly-analysis')">Monthly Processing Age Analysis</h3>
+                <div class="card-content">
+                    ${trendAnalysis}
+                    <div class="monthly-ages-table">
+                        <table>
+                            <thead>
                                 <tr>
-                                    <td>${new Date(month.processing_month).toLocaleDateString('en-US', { 
-                                        month: 'short', 
-                                        year: 'numeric'
-                                    })}</td>
-                                    <td>${month.total_processed.toLocaleString()}</td>
-                                    <td>${Math.round(month.average_age)} months</td>
-                                    <td>${month.youngest_visa} - ${month.oldest_visa} months</td>
-                                    <td>${Math.round(month.moving_average).toLocaleString()} (per month)</td>
-                                    <td>${month.weighted_average ? Math.round(month.weighted_average).toLocaleString() + ' (per month)' : 'N/A'}</td>
+                                    <th>Processing Month</th>
+                                    <th>Visas Processed</th>
+                                    <th>Average Age</th>
+                                    <th>Age Range</th>
+                                    <th>Monthly Average YTD</th>
+                                    <th>3-Month Average</th>
                                 </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                ${processedMonths.map(month => `
+                                    <tr>
+                                        <td>${new Date(month.processing_month).toLocaleDateString('en-US', { 
+                                            month: 'short', 
+                                            year: 'numeric'
+                                        })}</td>
+                                        <td>${month.total_processed.toLocaleString()}</td>
+                                        <td>${Math.round(month.average_age)} months</td>
+                                        <td>${month.youngest_visa} - ${month.oldest_visa} months</td>
+                                        <td>${Math.round(month.moving_average).toLocaleString()}</td>
+                                        <td>${month.weighted_average ? `${Math.round(month.weighted_average)}` : 'N/A'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         `;
@@ -954,6 +1380,56 @@ ini_set('display_errors', 1);
         const currentMonth = now.getMonth() + 1; // JavaScript months are 0-based
         const currentYear = now.getFullYear();
         return (currentMonth >= 7) ? currentYear : currentYear - 1;
+    }
+
+    function toggleCard(cardId) {
+        const card = document.getElementById(cardId);
+        card.classList.toggle('collapsed');
+    }
+
+    function generatePredictionHTML(data) {
+        if (data.status === 'error') {
+            return `<p class="no-data">${data.message}</p>`;
+        }
+
+        if (data.status === 'not_possible') {
+            return `
+                <div class="prediction-result negative">
+                    <h3>Processing Timeline Prediction</h3>
+                    <div class="prediction-message">
+                        ${data.message}
+                        <ul>
+                            <li>Total places remaining: ${data.details.total_remaining.toLocaleString()}</li>
+                            <li>Reserved for priority cases*: ${Math.round(data.details.priority_quota).toLocaleString()}</li>
+                            <li>Available for non-priority: ${Math.round(data.details.non_priority_places).toLocaleString()}</li>
+                            <li>Applications ahead of you: ${data.details.applications_ahead.toLocaleString()}</li>
+                        </ul>
+                        <p>* Priority quota is currently estimated at 20% of remaining places.</p>
+                        <p>Please check back when next year's quota is announced.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="prediction-result positive">
+                <h3>Processing Timeline Prediction</h3>
+                <div class="prediction-date">
+                    Estimated processing date: ${new Date(data.predicted_date).toLocaleDateString()}
+                </div>
+                <div class="prediction-details">
+                    <h4>Calculation breakdown:</h4>
+                    <ul>
+                        <li>Recent processing rate: ${Math.round(data.calculation.three_month_average).toLocaleString()} visas per month</li>
+                        <li>Adjusted for priority cases (-20%)*: ${Math.round(data.calculation.adjusted_rate).toLocaleString()} visas per month</li>
+                        <li>Applications ahead of you: ${data.calculation.total_ahead.toLocaleString()}</li>
+                        <li>Estimated processing time: ${data.calculation.months_to_process} months</li>
+                        <li>Last processing date: ${new Date(data.calculation.last_update).toLocaleDateString()}</li>
+                    </ul>
+                    <p>* Priority processing allocation is currently estimated at 20%.</p>
+                </div>
+            </div>
+        `;
     }
     </script>
 </body>
