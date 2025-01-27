@@ -1,0 +1,99 @@
+# Visa Processing API Documentation
+
+This API provides access to visa processing statistics and analytics.
+
+## Authentication
+
+Currently using basic authentication. Additional security measures recommended for production.
+
+## Endpoints
+
+### Get Visas On Hand
+
+- **URL**: `/api.php?function=getVisasOnHand`
+- **Method**: `GET`
+- **URL Params**:
+  - `visa_type_id=[integer]` (required): The ID of the visa type.
+
+#### Success Response
+
+- **Code**: `200 OK`
+- **Content**:
+  ```json
+  { "success": true, "data": 2500 }
+  ```
+
+### Get Processed Visas By Month
+
+- **URL**: `/api.php?function=getProcessedByMonth`
+- **Method**: `GET`
+- **URL Params**:
+  - `visa_type_id=[integer]` (required)
+  - `start_date=[string]` (optional)
+  - `end_date=[string]` (optional)
+
+#### Success Response
+
+- **Code**: `200 OK`
+- **Content**:
+  ```json
+  [
+    { "update_month": "2024-11-01", "total_processed": 2416, "details": "..." },
+    { "update_month": "2024-10-01", "total_processed": 3292, "details": "..." }
+  ]
+  ```
+
+### Get Monthly Average Processing Rate
+
+- **URL**: `/api.php?function=getMonthlyAverageProcessingRate`
+- **Method**: `GET`
+- **URL Params**:
+  - `visa_type_id=[integer]` (required)
+  - `start_date=[string]` (optional)
+  - `end_date=[string]` (optional)
+
+#### Success Response
+
+- **Code**: `200 OK`
+- **Content**:
+  ```json
+  [
+    { "update_month": "2024-11-01", "total_processed": 2416, "running_average": 2500.5 },
+    { "update_month": "2024-10-01", "total_processed": 3292, "running_average": 2600.3 }
+  ]
+  ```
+
+### Get Weighted Average Processing Rate
+
+- **URL**: `/api.php?function=getWeightedAverageProcessingRate`
+- **Method**: `GET`
+- **URL Params**:
+  - `visa_type_id=[integer]` (required)
+  - `start_date=[string]` (optional)
+  - `end_date=[string]` (optional)
+
+#### Success Response
+
+- **Code**: `200 OK`
+- **Content**:
+  ```json
+  { "success": true, "data": 2750.67 }
+  ```
+
+### Error Response
+
+- **Code**: `400 Bad Request`
+- **Content**:
+  ```json
+  { "error": "Visa type ID is required" }
+  ```
+
+- **Code**: `400 Bad Request`
+- **Content**:
+  ```json
+  { "error": "Invalid function specified" }
+  ```
+
+### Other Endpoints
+
+- Document other API endpoints here...

@@ -1,5 +1,7 @@
 <?php
-// Add these constants at the top of functions.php
+/************************
+ * Constants and Configuration
+ ************************/
 define('IMPORT_TYPES', [
     'processing_times' => [
         'pattern' => '/^processing_times_(\d{4})(\d{2})\.csv$/',
@@ -23,7 +25,20 @@ define('IMPORT_TYPES', [
     ]
 ]);
 
-// #1 - handleFileUpload
+/************************
+ * Admin Functions - Data Import
+ * 
+ * Functions for handling file uploads and data imports in the admin interface.
+ ************************/
+
+/**
+ * Handle File Upload
+ * 
+ * @description Processes uploaded files and validates them before import
+ * @param array $file The uploaded file array from $_FILES
+ * @return array|string Status message or error
+ * @location Admin Panel > Import Data tab
+ */
 function handleFileUpload($file) {
     $validation = validateImportFile($file);
     
@@ -39,111 +54,14 @@ function handleFileUpload($file) {
     }
 }
 
-// #2 - getVisaSubclasses
-function getVisaSubclasses() {
-    global $pdo;
-    try {
-        $stmt = $pdo->query("SELECT code, name FROM visa_subclasses WHERE active = 1 ORDER BY code");
-        return $stmt->fetchAll();
-    } catch(PDOException $e) {
-        // Log error and return empty array
-        error_log("Error fetching visa subclasses: " . $e->getMessage());
-        return [];
-    }
-}
-
-// #3 - calculatePredictions
-function calculatePredictions($visa_subclass, $application_date) {
-    // Get processing rates and quotas from database
-    // Calculate predictions based on application date and current processing data
-    // Return array of predictions with stages, dates, and confidence levels
-    
-    // Example return format:
-    return [
-        'Initial Assessment' => [
-            'date' => '2024-03-01',
-            'confidence' => 85
-        ],
-        'Document Check' => [
-            'date' => '2024-04-15',
-            'confidence' => 75
-        ],
-        'Final Decision' => [
-            'date' => '2024-06-30',
-            'confidence' => 65
-        ]
-    ];
-}
-
-// #4 - getAllVisaTypes
-function getAllVisaTypes() {
-    global $pdo;
-    try {
-        $stmt = $pdo->query("SELECT id, visa_type FROM visa_types ORDER BY visa_type");
-        return $stmt->fetchAll();
-    } catch(PDOException $e) {
-        error_log("Error fetching visa types: " . $e->getMessage());
-        return [];
-    }
-}
-
-// #5 - addVisaType
-function addVisaType($visa_type) {
-    global $pdo;
-    try {
-        $stmt = $pdo->prepare("INSERT INTO visa_types (visa_type) VALUES (?)");
-        $stmt->execute([$visa_type]);
-        return "Visa type added successfully";
-    } catch(PDOException $e) {
-        if ($e->getCode() == 23000) {
-            return "Error: This visa type already exists";
-        }
-        return "Error adding visa type: " . $e->getMessage();
-    }
-}
-
-// #6 - deleteVisaType
-function deleteVisaType($id) {
-    global $pdo;
-    try {
-        $pdo->beginTransaction();
-
-        // First delete related records from visa_allocations
-        $stmt = $pdo->prepare("DELETE FROM visa_allocations WHERE visa_type_id = ?");
-        $stmt->execute([$id]);
-
-        // Then delete related records from visa_queue_updates and visa_lodgements
-        $stmt = $pdo->prepare("
-            DELETE qu FROM visa_queue_updates qu
-            INNER JOIN visa_lodgements l ON qu.lodged_month_id = l.id
-            WHERE l.visa_type_id = ?
-        ");
-        $stmt->execute([$id]);
-
-        $stmt = $pdo->prepare("DELETE FROM visa_lodgements WHERE visa_type_id = ?");
-        $stmt->execute([$id]);
-
-        // Finally delete the visa type
-        $stmt = $pdo->prepare("DELETE FROM visa_types WHERE id = ?");
-        $stmt->execute([$id]);
-
-        $pdo->commit();
-        return [
-            'status' => 'success',
-            'message' => "Visa type and all related data deleted successfully"
-        ];
-
-    } catch (PDOException $e) {
-        $pdo->rollBack();
-        error_log("Error deleting visa type: " . $e->getMessage());
-        return [
-            'status' => 'error',
-            'message' => "Error deleting visa type: " . $e->getMessage()
-        ];
-    }
-}
-
-// #7 - validateImportFile
+/**
+ * Validate Import File
+ * 
+ * @description Validates uploaded CSV files for correct format and content
+ * @param array $file The uploaded file array
+ * @return array Validation results with status and any errors
+ * @location Admin Panel > Import Data tab
+ */
 function validateImportFile($file) {
     $filename = $file['name'];
     $filesize = $file['size'];
@@ -187,46 +105,62 @@ function validateImportFile($file) {
     return ['error' => 'Invalid filename format. Expected format: {visa_type}.csv (e.g., 190.csv)'];
 }
 
-// #8 - processVisaQueueImport
+/**
+ * Process Visa Queue Import
+ * 
+ * @description Imports visa queue data from CSV file into database
+ * @param array $file_info File information and metadata
+ * @param string $delimiter CSV delimiter character
+ * @return array Import results with status and statistics
+ * @location Admin Panel > Import Data tab
+ */
 function processVisaQueueImport($file_info, $delimiter) {
-    global $pdo;
+    global $conn;
     
     try {
-        $pdo->beginTransaction();
+        // Start transaction (mysqli version)
+        mysqli_begin_transaction($conn);
         
         // Get visa type ID
-        $visaTypeStmt = $pdo->prepare("SELECT id FROM visa_types WHERE visa_type = ?");
-        $visaTypeStmt->execute([$file_info['visa_type']]);
-        $visaTypeId = $visaTypeStmt->fetchColumn();
+        $visaTypeStmt = mysqli_prepare($conn, "SELECT id FROM visa_types WHERE visa_type = ?");
+        mysqli_stmt_bind_param($visaTypeStmt, "s", $file_info['visa_type']);
+        mysqli_stmt_execute($visaTypeStmt);
+        $result = mysqli_stmt_get_result($visaTypeStmt);
+        $visaTypeId = mysqli_fetch_column($result);
         
         if (!$visaTypeId) {
             throw new Exception("Invalid visa type: " . $file_info['visa_type']);
         }
         
         // Prepare statements
-        $findLodgementIdStmt = $pdo->prepare("
+        $findLodgementIdStmt = mysqli_prepare($conn, "
             SELECT id, first_count_volume 
             FROM visa_lodgements 
             WHERE lodged_month = ? AND visa_type_id = ?
         ");
         
-        $findQueueUpdateStmt = $pdo->prepare("
-            SELECT id 
+        $findQueueUpdateStmt = mysqli_prepare($conn, "
+            SELECT id, queue_count 
             FROM visa_queue_updates 
             WHERE lodged_month_id = ? AND update_month = ?
         ");
         
-        $createLodgementStmt = $pdo->prepare("
+        $createLodgementStmt = mysqli_prepare($conn, "
             INSERT INTO visa_lodgements (lodged_month, visa_type_id, first_count_volume)
             VALUES (?, ?, ?)
         ");
         
-        $createQueueUpdateStmt = $pdo->prepare("
+        $createQueueUpdateStmt = mysqli_prepare($conn, "
             INSERT INTO visa_queue_updates (lodged_month_id, update_month, queue_count)
             VALUES (?, ?, ?)
         ");
         
+        // Process the file
         $handle = fopen($file_info['tmp_name'], "r");
+        if ($handle === false) {
+            throw new Exception("Failed to open file");
+        }
+
         $header = fgetcsv($handle, 0, $delimiter, '"', '\\');
         $lodgement_months = array_slice($header, 1); // Skip first column
         
@@ -281,34 +215,54 @@ function processVisaQueueImport($file_info, $delimiter) {
                     $queue_count = ($value === '<5') ? 0 : intval($value);
                     
                     // Check if lodgement exists
-                    $findLodgementIdStmt->execute([$formatted_months[$i], $visaTypeId]);
-                    $existing = $findLodgementIdStmt->fetch();
+                    mysqli_stmt_bind_param($findLodgementIdStmt, "ss", $formatted_months[$i], $visaTypeId);
+                    mysqli_stmt_execute($findLodgementIdStmt);
+                    $existing = mysqli_stmt_get_result($findLodgementIdStmt);
+                    $existing_row = mysqli_fetch_assoc($existing);
                     
-                    if (!$existing) {
+                    $lodgementId = null;
+                    if (!$existing_row) {
                         // Create new lodgement with maximum count for this column
-                        $createLodgementStmt->execute([
-                            $formatted_months[$i],
-                            $visaTypeId,
-                            $max_counts[$i]
-                        ]);
-                        $lodgementId = $pdo->lastInsertId();
+                        mysqli_stmt_bind_param($createLodgementStmt, "ssi", $formatted_months[$i], $visaTypeId, $max_counts[$i]);
+                        if (!mysqli_stmt_execute($createLodgementStmt)) {
+                            throw new Exception("Failed to create lodgement: " . mysqli_stmt_error($createLodgementStmt));
+                        }
+                        $lodgementId = mysqli_insert_id($conn);
                         $stats['lodgements_created']++;
                     } else {
-                        $lodgementId = $existing['id'];
+                        $lodgementId = $existing_row['id'];
+                    }
+                    
+                    // Validate lodgementId before using it
+                    if (!$lodgementId) {
+                        throw new Exception("Invalid lodgement ID for month: " . $formatted_months[$i]);
                     }
                     
                     // Check if this update already exists
-                    $findQueueUpdateStmt->execute([$lodgementId, $update_month]);
-                    if (!$findQueueUpdateStmt->fetch()) {
+                    mysqli_stmt_bind_param($findQueueUpdateStmt, "ss", $lodgementId, $update_month);
+                    mysqli_stmt_execute($findQueueUpdateStmt);
+                    $existing = mysqli_stmt_get_result($findQueueUpdateStmt);
+                    $existing_row = mysqli_fetch_assoc($existing);
+                    if (!$existing_row) {
                         // Only add new updates
-                        $createQueueUpdateStmt->execute([
-                            $lodgementId,
-                            $update_month,
-                            $queue_count
-                        ]);
+                        mysqli_stmt_bind_param($createQueueUpdateStmt, "sss", $lodgementId, $update_month, $queue_count);
+                        mysqli_stmt_execute($createQueueUpdateStmt);
                         $stats['queue_updates']++;
                     } else {
-                        $stats['skipped_updates']++;
+                        // Check if the queue count has changed
+                        if ($existing_row['queue_count'] != $queue_count) {
+                            // Update the existing record
+                            $updateQueueStmt = mysqli_prepare($conn, "
+                                UPDATE visa_queue_updates 
+                                SET queue_count = ? 
+                                WHERE lodged_month_id = ? AND update_month = ?
+                            ");
+                            mysqli_stmt_bind_param($updateQueueStmt, "iss", $queue_count, $lodgementId, $update_month);
+                            mysqli_stmt_execute($updateQueueStmt);
+                            $stats['queue_updates']++;
+                        } else {
+                            $stats['skipped_updates']++;
+                        }
                     }
                 }
             }
@@ -316,7 +270,7 @@ function processVisaQueueImport($file_info, $delimiter) {
         }
         
         fclose($handle);
-        $pdo->commit();
+        mysqli_commit($conn);
         
         return [
             'status' => 'success',
@@ -335,7 +289,7 @@ function processVisaQueueImport($file_info, $delimiter) {
         ];
         
     } catch (Exception $e) {
-        $pdo->rollBack();
+        mysqli_rollback($conn);
         error_log("Import error: " . $e->getMessage());
         return [
             'status' => 'error',
@@ -344,7 +298,136 @@ function processVisaQueueImport($file_info, $delimiter) {
     }
 }
 
-// #9 - validateAndPreviewImport
+/**
+ * Cleanup Import File
+ * 
+ * @description Removes temporary import files after processing
+ * @param string $file_path Path to the temporary file
+ * @return bool True if file was deleted, false otherwise
+ * @location Admin Panel > Import Data tab
+ */
+function cleanupImportFile($file_path) {
+    if (file_exists($file_path)) {
+        return unlink($file_path);
+    }
+    return false;
+}
+
+/************************
+ * Admin Functions - Visa Type Management
+ * 
+ * Functions for managing visa types in the admin interface.
+ ************************/
+
+/**
+ * Get All Visa Types
+ * 
+ * @description Retrieves all visa types from the database
+ * @param object $conn Database connection object
+ * @return array List of all visa types
+ * @location Admin Panel > Manage Visa Types tab
+ */
+function getAllVisaTypes($conn) {
+    $visaTypes = [];
+    $query = "SELECT id, visa_type FROM visa_types ORDER BY visa_type";
+    $result = mysqli_query($conn, $query);
+
+    if ($result) {
+        while ($row = mysqli_fetch_assoc($result)) {
+            $visaTypes[] = $row;
+        }
+        return $visaTypes;
+    } else {
+        error_log("Error fetching visa types: " . mysqli_error($conn));
+        return [];
+    }
+}
+
+/**
+ * Add Visa Type
+ * 
+ * @description Adds a new visa type to the system
+ * @param string $visa_type The visa type code to add
+ * @return string Success or error message
+ * @location Admin Panel > Manage Visa Types tab > Add New
+ */
+function addVisaType($visa_type) {
+    global $pdo;
+    try {
+        $stmt = $pdo->prepare("INSERT INTO visa_types (visa_type) VALUES (?)");
+        $stmt->execute([$visa_type]);
+        return "Visa type added successfully";
+    } catch(PDOException $e) {
+        if ($e->getCode() == 23000) {
+            return "Error: This visa type already exists";
+        }
+        return "Error adding visa type: " . $e->getMessage();
+    }
+}
+
+/**
+ * Delete Visa Type
+ * 
+ * @description Removes a visa type and all associated data
+ * @param int $id The ID of the visa type to delete
+ * @return array Status and message
+ * @location Admin Panel > Manage Visa Types tab > Delete
+ */
+function deleteVisaType($id) {
+    global $pdo;
+    try {
+        $pdo->beginTransaction();
+
+        // First delete related records from visa_allocations
+        $stmt = $pdo->prepare("DELETE FROM visa_allocations WHERE visa_type_id = ?");
+        $stmt->execute([$id]);
+
+        // Then delete related records from visa_queue_updates and visa_lodgements
+        $stmt = $pdo->prepare("
+            DELETE qu FROM visa_queue_updates qu
+            INNER JOIN visa_lodgements l ON qu.lodged_month_id = l.id
+            WHERE l.visa_type_id = ?
+        ");
+        $stmt->execute([$id]);
+
+        $stmt = $pdo->prepare("DELETE FROM visa_lodgements WHERE visa_type_id = ?");
+        $stmt->execute([$id]);
+
+        // Finally delete the visa type
+        $stmt = $pdo->prepare("DELETE FROM visa_types WHERE id = ?");
+        $stmt->execute([$id]);
+
+        $pdo->commit();
+        return [
+            'status' => 'success',
+            'message' => "Visa type and all related data deleted successfully"
+        ];
+
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        error_log("Error deleting visa type: " . $e->getMessage());
+        return [
+            'status' => 'error',
+            'message' => "Error deleting visa type: " . $e->getMessage()
+        ];
+    }
+}
+
+/************************
+ * Admin Functions - Data Management
+ * 
+ * Functions for managing and purging data in the admin interface.
+ ************************/
+
+/**
+ * Validate And Preview Import
+ * 
+ * @description Previews data before import and validates format
+ * @param array $file The uploaded file
+ * @param string $selected_visa_type The selected visa type
+ * @return array Preview data and validation results
+ * @location Admin Panel > Import Data tab > Preview
+ */
 function validateAndPreviewImport($file, $selected_visa_type) {
     try {
         $filesize = $file['size'];
@@ -406,17 +489,17 @@ function validateAndPreviewImport($file, $selected_visa_type) {
         // Preview first few rows
         $preview_rows = [];
         $row_count = 0;
-        $max_preview_rows = 5;
+        $max_preview_rows = 5;  // This limits the preview display
         
         while (($data = fgetcsv($handle, 0, $delimiter, '"', '\\')) !== FALSE && $row_count < $max_preview_rows) {
-            // Clean the data
-            $data = array_map('trim', $data);  // Trim all values
+            $data = array_map('trim', $data);
             $preview_rows[] = $data;
             $row_count++;
         }
         
-        // Count total rows
-        $total_rows = $row_count;
+        // Count total rows (including header)
+        rewind($handle);
+        $total_rows = 0;
         while (fgetcsv($handle, 0, $delimiter, '"', '\\') !== FALSE) {
             $total_rows++;
         }
@@ -429,9 +512,9 @@ function validateAndPreviewImport($file, $selected_visa_type) {
                 'name' => $file['name'],
                 'type' => $filetype,
                 'size' => $filesize,
-                'tmp_name' => $temp_filename,  // Use our new temporary file
+                'tmp_name' => $temp_filename,
                 'visa_type' => $selected_visa_type,
-                'total_rows' => $total_rows,
+                'total_rows' => $total_rows - 1,  // Subtract header row
                 'delimiter' => $delimiter
             ],
             'header' => $header,
@@ -450,136 +533,65 @@ function validateAndPreviewImport($file, $selected_visa_type) {
     }
 }
 
-// #10 - validateRow
-function validateRow($data, $type) {
-    switch ($type) {
-        case 'visa_queue':
-            // Validate date format in first column
-            if (!preg_match('/^\d{2}-[A-Za-z]{3}-\d{2}$/', $data[0])) {
-                return ['error' => 'Invalid date format in first column. Expected: DD-MMM-YY'];
-            }
-            
-            // Validate all numeric values and <5 in subsequent columns
-            for ($i = 1; $i < count($data); $i++) {
-                $value = trim($data[$i]);
-                if (!empty($value)) {
-                    if ($value !== '<5' && !preg_match('/^\d+$/', $value)) {
-                        return ['error' => "Invalid queue count in column $i: '{$value}'. Must be a whole number or '<5'"];
-                    }
-                    // Convert '<5' to 0 during validation
-                    if ($value === '<5') {
-                        $data[$i] = '0';
-                    }
-                }
-            }
-            
-            return ['data' => $data];
-    }
-    return ['error' => 'Unknown import type'];
-}
-
-// #11 - getVisaQueueData
-function getVisaQueueData($visa_type_id, $limit = 12) {
-    global $pdo;
-    
-    try {
-        // Get basic visa type info
-        $visaStmt = $pdo->prepare("
-            SELECT visa_type 
-            FROM visa_types 
-            WHERE id = ?
-        ");
-        $visaStmt->execute([$visa_type_id]);
-        $visa_info = $visaStmt->fetch(PDO::FETCH_ASSOC);
-        
-        // Get unique lodgement months
-        $lodgementStmt = $pdo->prepare("
-            SELECT DISTINCT l.id, l.lodged_month, l.first_count_volume
-            FROM visa_lodgements l
-            WHERE l.visa_type_id = ?
-            ORDER BY l.lodged_month DESC
-            LIMIT ?
-        ");
-        $lodgementStmt->execute([$visa_type_id, $limit]);
-        $lodgements = $lodgementStmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Get update history for each lodgement
-        $updateStmt = $pdo->prepare("
-            SELECT update_month, queue_count
-            FROM visa_queue_updates
-            WHERE lodged_month_id = ?
-            ORDER BY update_month DESC
-        ");
-        
-        $data = [
-            'visa_type' => $visa_info['visa_type'],
-            'lodgements' => []
-        ];
-        
-        foreach ($lodgements as $lodgement) {
-            $updateStmt->execute([$lodgement['id']]);
-            $updates = $updateStmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            $data['lodgements'][] = [
-                'lodged_month' => $lodgement['lodged_month'],
-                'first_count' => $lodgement['first_count_volume'],
-                'updates' => $updates
-            ];
-        }
-        
-        return $data;
-        
-    } catch (PDOException $e) {
-        error_log("Error fetching visa queue data: " . $e->getMessage());
-        return null;
-    }
-}
-
-// #12 - clearImportSession
-function clearImportSession() {
-    if (isset($_SESSION['import_preview'])) {
-        unset($_SESSION['import_preview']);
-    }
-}
-
-// #13 - purgeVisaData
+/**
+ * Purge Visa Data
+ * 
+ * @description Deletes all data for a specific visa type or all visa types
+ * @param int|null $visa_type_id Optional visa type ID. If null, purges all data
+ * @return array Status and message about the purge operation
+ * @location Admin Panel > Data Management tab
+ */
 function purgeVisaData($visa_type_id = null) {
-    global $pdo;
+    global $conn;
     
     try {
-        $pdo->beginTransaction();
+        mysqli_begin_transaction($conn);
         
         if ($visa_type_id) {
-            // Delete specific visa type data
-            $stmt = $pdo->prepare("
-                DELETE qu FROM visa_queue_updates qu
-                INNER JOIN visa_lodgements l ON qu.lodged_month_id = l.id
-                WHERE l.visa_type_id = ?
-            ");
-            $stmt->execute([$visa_type_id]);
+            // Delete data for specific visa type
             
-            $stmt = $pdo->prepare("
-                DELETE FROM visa_lodgements 
-                WHERE visa_type_id = ?
-            ");
-            $stmt->execute([$visa_type_id]);
+            // First delete queue updates
+            $query = "
+                DELETE vqu FROM visa_queue_updates vqu
+                INNER JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+            ";
+            $stmt = mysqli_prepare($conn, $query);
+            mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+            mysqli_stmt_execute($stmt);
+            
+            // Then delete lodgements
+            $query = "DELETE FROM visa_lodgements WHERE visa_type_id = ?";
+            $stmt = mysqli_prepare($conn, $query);
+            mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+            mysqli_stmt_execute($stmt);
+            
+            // Delete allocations
+            $query = "DELETE FROM visa_allocations WHERE visa_type_id = ?";
+            $stmt = mysqli_prepare($conn, $query);
+            mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+            mysqli_stmt_execute($stmt);
+            
+            $message = "Successfully purged all data for visa type ID: $visa_type_id";
         } else {
             // Delete all data
-            $pdo->exec("DELETE FROM visa_queue_updates");
-            $pdo->exec("DELETE FROM visa_lodgements");
+            mysqli_query($conn, "DELETE FROM visa_queue_updates");
+            mysqli_query($conn, "DELETE FROM visa_lodgements");
+            mysqli_query($conn, "DELETE FROM visa_allocations");
+            
+            $message = "Successfully purged all visa data from the system";
         }
         
-        $pdo->commit();
+        mysqli_commit($conn);
+        
         return [
             'status' => 'success',
-            'message' => $visa_type_id ? 
-                "Successfully purged data for visa type ID: $visa_type_id" :
-                "Successfully purged all visa data"
+            'message' => $message
         ];
         
     } catch (Exception $e) {
-        $pdo->rollBack();
-        error_log("Purge error: " . $e->getMessage());
+        mysqli_rollback($conn);
+        error_log("Error in purgeVisaData: " . $e->getMessage());
         return [
             'status' => 'error',
             'message' => "Error purging data: " . $e->getMessage()
@@ -587,523 +599,1129 @@ function purgeVisaData($visa_type_id = null) {
     }
 }
 
-// #14 - cleanupImportFile
-function cleanupImportFile($filename) {
-    if ($filename && file_exists($filename)) {
-        unlink($filename);
+/************************
+ * Core Functions
+ * 
+ * These functions provide core functionality for the visa processing system.
+ * Each function is documented with its purpose and parameters.
+ * 
+ * API Access: Each function can be called via URL:
+ * /api.php?function=functionName&param1=value1&param2=value2
+ ************************/
+
+/**
+ * Get Visas On Hand
+ * 
+ * @description Calculates the total number of visa applications currently in queue
+ * @param array $queue_data Array of visa queue details containing 'queue_count' values
+ * @return int Total number of visas currently in the processing queue
+ * @example 
+ *   $debug_data = debugVisaQueueSummary($visa_type_id);
+ *   $visas_on_hand = getVisasOnHand($debug_data['details']);
+ * @api_endpoint /api.php?function=getVisasOnHand&visa_type_id=190
+ */
+function getVisasOnHand($queue_data) {
+    if (!is_array($queue_data) || empty($queue_data)) {
+        return 0;
     }
+    return array_sum(array_column($queue_data, 'queue_count'));
 }
 
-// #15 - getVisaTypesSummary
-function getVisaTypesSummary() {
-    global $pdo;
-    
-    try {
-        $stmt = $pdo->query("
-            SELECT 
-                vt.visa_type,
-                COUNT(DISTINCT l.id) as total_lodgements,
-                MAX(qu.update_month) as latest_update,
-                SUM(l.first_count_volume) as total_applications,
-                (1 - SUM(CASE 
-                    WHEN qu.update_month = (
-                        SELECT MAX(update_month) 
-                        FROM visa_queue_updates qu2 
-                        WHERE qu2.lodged_month_id = l.id
-                    )
-                    THEN qu.queue_count 
-                    ELSE 0 
-                END) / SUM(l.first_count_volume)) * 100 as processing_rate
-            FROM visa_types vt
-            LEFT JOIN visa_lodgements l ON l.visa_type_id = vt.id
-            LEFT JOIN visa_queue_updates qu ON qu.lodged_month_id = l.id
-            GROUP BY vt.id, vt.visa_type
-            ORDER BY vt.visa_type
-        ");
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-    } catch (PDOException $e) {
-        error_log("Error getting visa types summary: " . $e->getMessage());
-        return [];
-    }
-}
-
-// #16 - hasVisaTypeData
-function hasVisaTypeData($visa_type_id) {
-    global $pdo;
-    
-    try {
-        $stmt = $pdo->prepare("
-            SELECT COUNT(*) 
-            FROM visa_lodgements 
-            WHERE visa_type_id = ?
-        ");
-        $stmt->execute([$visa_type_id]);
-        return $stmt->fetchColumn() > 0;
-        
-    } catch (PDOException $e) {
-        error_log("Error checking visa type data: " . $e->getMessage());
-        return false;
-    }
-}
-
-// #17 - getVisaQueueSummary
-function getVisaQueueSummary($visa_type_id) {
-    global $pdo;
-    
-    try {
-        $stmt = $pdo->prepare("
-            WITH LatestUpdate AS (
-                SELECT MAX(update_month) as latest_update
-                FROM visa_queue_updates qu
-                JOIN visa_lodgements l ON l.id = qu.lodged_month_id
-                WHERE l.visa_type_id = ?
-            )
-            SELECT 
-                SUM(qu.queue_count) as total_on_hand,
-                lu.latest_update as last_updated,
-                MIN(l.lodged_month) as oldest_case
-            FROM visa_queue_updates qu
-            JOIN visa_lodgements l ON l.id = qu.lodged_month_id
-            CROSS JOIN LatestUpdate lu
-            WHERE l.visa_type_id = ?
-            AND qu.update_month = lu.latest_update
-        ");
-        
-        $stmt->execute([$visa_type_id, $visa_type_id]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        return [
-            'total_on_hand' => (int)$result['total_on_hand'],
-            'last_updated' => $result['last_updated'],
-            'oldest_case' => $result['oldest_case']
-        ];
-        
-    } catch (PDOException $e) {
-        error_log("Error getting visa queue summary: " . $e->getMessage());
-        return null;
-    }
-}
-
-// #18 - debugVisaQueueSummary
+/**
+ * Debug Visa Queue Summary
+ * 
+ * @description Gets detailed queue data for a specific visa type including latest updates and trends
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @return array|null Queue summary data including latest update and details
+ * @location Admin Panel > Data Summary tab
+ */
 function debugVisaQueueSummary($visa_type_id) {
-    global $pdo;
+    global $conn;
     
     try {
-        // Get the latest update date
-        $stmt = $pdo->prepare("
-            SELECT MAX(update_month) as latest_update
-            FROM visa_queue_updates qu
-            JOIN visa_lodgements l ON l.id = qu.lodged_month_id
-            WHERE l.visa_type_id = ?
-        ");
-        $stmt->execute([$visa_type_id]);
-        $latest_update = $stmt->fetchColumn();
-        
-        // Get all queue counts for the latest update
-        $stmt = $pdo->prepare("
+        // Get the latest update for this visa type
+        $query = "
             SELECT 
-                l.lodged_month,
-                qu.queue_count,
-                qu.update_month
-            FROM visa_queue_updates qu
-            JOIN visa_lodgements l ON l.id = qu.lodged_month_id
-            WHERE l.visa_type_id = ? 
-            AND qu.update_month = ?
-            ORDER BY l.lodged_month
-        ");
-        $stmt->execute([$visa_type_id, $latest_update]);
-        $details = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                vl.lodged_month,
+                vqu.update_month as latest_update,
+                vqu.queue_count
+            FROM visa_lodgements vl
+            JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+            WHERE vl.visa_type_id = ?
+            ORDER BY vqu.update_month DESC
+            LIMIT 1
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $latest = mysqli_fetch_assoc($result);
+        
+        if (!$latest) {
+            return null;
+        }
+        
+        // Get detailed queue breakdown
+        $query = "
+            SELECT 
+                vl.lodged_month,
+                vqu.queue_count,
+                vqu.update_month
+            FROM visa_lodgements vl
+            JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+            WHERE vl.visa_type_id = ?
+            AND vqu.update_month = (
+                SELECT MAX(update_month) 
+                FROM visa_queue_updates vqu2 
+                JOIN visa_lodgements vl2 ON vqu2.lodged_month_id = vl2.id 
+                WHERE vl2.visa_type_id = ?
+            )
+            ORDER BY vl.lodged_month DESC
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, "ii", $visa_type_id, $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
+        $details = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $details[] = $row;
+        }
         
         return [
-            'latest_update' => $latest_update,
+            'latest_update' => $latest['latest_update'],
             'details' => $details
         ];
-    } catch (PDOException $e) {
+        
+    } catch (Exception $e) {
         error_log("Error in debugVisaQueueSummary: " . $e->getMessage());
         return null;
     }
 }
 
-// #19 - getVisaProcessingRates
+/**
+ * Get Visa Processing Rates
+ * 
+ * @description Calculates processing rates and trends for a visa type
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @return array Processing rates including monthly averages and trends
+ * @location Admin Panel > Data Summary tab
+ */
 function getVisaProcessingRates($visa_type_id) {
-    global $pdo;
+    global $conn;
     
     try {
-        // Get allocations first
-        $allocations = getVisaAllocations($visa_type_id);
-        $current_allocation = $allocations ? $allocations['current_allocation'] : 0;
-        $previous_allocation = $allocations ? $allocations['previous_allocation'] : 0;
-
-        $stmt = $pdo->prepare("
-            WITH ConsecutiveUpdates AS (
+        // Get processing rates for the last 3 months
+        $query = "
+            WITH MonthlyProcessing AS (
                 SELECT 
-                    qu1.update_month as current_month,
-                    qu2.update_month as previous_month,
-                    qu1.queue_count as current_count,
-                    qu2.queue_count as previous_count,
-                    l.lodged_month,
-                    qu1.lodged_month_id,
-                    YEAR(qu1.update_month) as processing_year
-                FROM visa_queue_updates qu1
-                JOIN visa_queue_updates qu2 ON qu1.lodged_month_id = qu2.lodged_month_id
-                JOIN visa_lodgements l ON l.id = qu1.lodged_month_id
-                WHERE l.visa_type_id = ?
-                AND qu2.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates qu3
-                    WHERE qu3.lodged_month_id = qu1.lodged_month_id
-                    AND qu3.update_month < qu1.update_month
-                )
-            ),
-            ProcessingRates AS (
-                SELECT 
-                    current_month,
-                    previous_month,
-                    processing_year,
-                    l.lodged_month,
-                    SUM(previous_count - current_count) as visas_processed
-                FROM ConsecutiveUpdates cu
-                JOIN visa_lodgements l ON l.id = cu.lodged_month_id
-                GROUP BY current_month, previous_month, processing_year, l.lodged_month
-            ),
-            YearlyStats AS (
-                SELECT 
-                    processing_year,
-                    SUM(CASE WHEN visas_processed > 0 THEN visas_processed ELSE 0 END) as yearly_total,
-                    COUNT(*) as months_in_year,
-                    AVG(CASE WHEN visas_processed > 0 THEN visas_processed ELSE 0 END) as yearly_average
-                FROM ProcessingRates
-                GROUP BY processing_year
-            ),
-            LastThreeMonths AS (
-                SELECT AVG(CASE WHEN visas_processed > 0 THEN visas_processed ELSE 0 END) as recent_average
-                FROM (
-                    SELECT visas_processed
-                    FROM ProcessingRates
-                    ORDER BY current_month DESC
-                    LIMIT 3
-                ) recent
-            ),
-            RunningAverages AS (
-                SELECT 
-                    pr.*,
-                    AVG(CASE WHEN pr2.visas_processed > 0 THEN pr2.visas_processed ELSE 0 END) OVER (
-                        ORDER BY pr.current_month
-                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                    ) as ytd_average
-                FROM ProcessingRates pr
-                JOIN ProcessingRates pr2 
-                    ON pr2.current_month <= pr.current_month
-                    AND pr2.processing_year = pr.processing_year
-                GROUP BY pr.current_month, pr.previous_month, pr.processing_year, pr.visas_processed, pr.lodged_month
+                    DATE_FORMAT(vqu1.update_month, '%Y-%m') as month,
+                    COUNT(DISTINCT vl.id) as total_applications,
+                    SUM(CASE 
+                        WHEN vqu2.queue_count < vqu1.queue_count THEN 1 
+                        ELSE 0 
+                    END) as processed_applications
+                FROM visa_queue_updates vqu1
+                JOIN visa_lodgements vl ON vqu1.lodged_month_id = vl.id
+                LEFT JOIN visa_queue_updates vqu2 ON vqu1.lodged_month_id = vqu2.lodged_month_id
+                    AND vqu2.update_month = DATE_ADD(vqu1.update_month, INTERVAL 1 MONTH)
+                WHERE vl.visa_type_id = ?
+                GROUP BY DATE_FORMAT(vqu1.update_month, '%Y-%m')
+                ORDER BY month DESC
+                LIMIT 3
             )
             SELECT 
-                ra.*,
-                ys.yearly_total,
-                ys.yearly_average,
-                ltm.recent_average as last_three_months_average,
-                ? as annual_allocation,
-                ? as previous_allocation,
-                2400 as priority_processed,
-                20 as priority_percentage,
-                ? - ys.yearly_total as remaining_quota
-            FROM RunningAverages ra
-            JOIN YearlyStats ys ON ys.processing_year = ra.processing_year
-            CROSS JOIN LastThreeMonths ltm
-            ORDER BY ra.current_month DESC
-        ");
+                month,
+                ROUND((processed_applications / total_applications) * 100, 1) as processing_rate,
+                total_applications,
+                processed_applications
+            FROM MonthlyProcessing
+            ORDER BY month DESC
+        ";
         
-        $stmt->execute([
-            $visa_type_id,           // For the first WHERE clause
-            $current_allocation,      // For annual_allocation
-            $previous_allocation,     // For previous_allocation
-            $current_allocation      // For remaining_quota calculation
-        ]);
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
         
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-    } catch (PDOException $e) {
-        error_log("Error getting visa processing rates: " . $e->getMessage());
-        return null;
-    }
-}
-
-// #20 - getCurrentFinancialYear
-function getCurrentFinancialYear() {
-    $currentMonth = (int)date('m');
-    $currentYear = (int)date('Y');
-    
-    // If we're in July-December, FY started this year
-    // If we're in January-June, FY started last year
-    return ($currentMonth >= 7) ? $currentYear : $currentYear - 1;
-}
-
-// #21 - getVisaAllocation
-function getVisaAllocation($visa_type) {
-    global $pdo;
-    
-    error_log("Getting allocation for visa type: " . $visa_type);
-    
-    // Get the current financial year
-    $current_year = date('m') >= 7 ? date('Y') : date('Y') - 1;
-    error_log("Current financial year: " . $current_year);
-    
-    // Get visa type ID
-    $stmt = $pdo->prepare("SELECT id FROM visa_types WHERE visa_type = ?");
-    $stmt->execute([$visa_type]);
-    $visa_type_data = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    error_log("Visa type data: " . print_r($visa_type_data, true));
-    
-    if (!$visa_type_data) {
-        error_log("No visa type found for: " . $visa_type);
-        return null;
-    }
-    
-    // Get allocation for current financial year
-    $stmt = $pdo->prepare("
-        SELECT allocation_amount, financial_year_start 
-        FROM visa_allocations 
-        WHERE visa_type_id = ? AND financial_year_start = ?
-        ORDER BY financial_year_start DESC 
-        LIMIT 1
-    ");
-    
-    $stmt->execute([$visa_type_data['id'], $current_year]);
-    $current_allocation = $stmt->fetch(PDO::FETCH_ASSOC);
-    error_log("Current allocation: " . print_r($current_allocation, true));
-    
-    // Get previous year's allocation
-    $prev_year = $current_year - 1;
-    $stmt->execute([$visa_type_data['id'], $prev_year]);
-    $previous_allocation = $stmt->fetch(PDO::FETCH_ASSOC);
-    error_log("Previous allocation: " . print_r($previous_allocation, true));
-    
-    $result = [
-        'current' => $current_allocation ? $current_allocation['allocation_amount'] : 0,
-        'previous' => $previous_allocation ? $previous_allocation['allocation_amount'] : 0,
-        'financial_year' => $current_year
-    ];
-    
-    error_log("Returning allocation data: " . print_r($result, true));
-    return $result;
-}
-
-// #22 - updateVisaAllocation
-function updateVisaAllocation($visa_type_id, $financial_year_start, $allocation_amount) {
-    global $pdo;
-    
-    try {
-        $stmt = $pdo->prepare("
-            INSERT INTO visa_allocations 
-                (visa_type_id, financial_year_start, allocation_amount)
-            VALUES 
-                (?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                allocation_amount = VALUES(allocation_amount)
-        ");
-        
-        $stmt->execute([$visa_type_id, $financial_year_start, $allocation_amount]);
-        return true;
-        
-    } catch (PDOException $e) {
-        error_log("Error updating visa allocation: " . $e->getMessage());
-        return false;
-    }
-}
-
-// #23 - getAllVisaAllocations
-function getAllVisaAllocations($financial_year_start = null) {
-    global $pdo;
-    
-    try {
-        if (!$financial_year_start) {
-            $financial_year_start = getCurrentFinancialYear();
+        $rates = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $rates[] = [
+                'month' => $row['month'],
+                'processing_rate' => floatval($row['processing_rate']),
+                'total_applications' => intval($row['total_applications']),
+                'processed_applications' => intval($row['processed_applications'])
+            ];
         }
         
-        $stmt = $pdo->prepare("
+        // Calculate trend (positive if processing rate is increasing)
+        $trend = null;
+        if (count($rates) >= 2) {
+            $trend = $rates[0]['processing_rate'] > $rates[1]['processing_rate'];
+        }
+        
+        return [
+            'rates' => $rates,
+            'trend' => $trend,
+            'latest_rate' => $rates[0]['processing_rate'] ?? null
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error in getVisaProcessingRates: " . $e->getMessage());
+        return [
+            'rates' => [],
+            'trend' => null,
+            'latest_rate' => null
+        ];
+    }
+}
+
+/**
+ * Get Processed Visas By Month
+ * 
+ * @description Calculates how many visas were processed in each update month by comparing
+ *              consecutive queue counts and summing the differences when the queue decreases
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string|null $start_date Optional start date in YYYY-MM-DD format
+ * @param string|null $end_date Optional end date in YYYY-MM-DD format
+ * @return array Monthly processing totals with details
+ * @example 
+ *   $processed = getProcessedByMonth(190, '2023-01-01', '2023-12-31');
+ * @api_endpoint /api.php?function=getProcessedByMonth&visa_type_id=190&start_date=2023-01-01&end_date=2023-12-31
+ */
+function getProcessedByMonth($visa_type_id, $start_date = null, $end_date = null) {
+    global $conn;
+    
+    try {
+        $params = [$visa_type_id];
+        $date_conditions = "";
+        
+        if ($start_date) {
+            $date_conditions .= " AND vqu.update_month >= ?";
+            $params[] = $start_date;
+        }
+        if ($end_date) {
+            $date_conditions .= " AND vqu.update_month <= ?";
+            $params[] = $end_date;
+        }
+        
+        $query = "
+            WITH MonthlySnapshots AS (
+                SELECT 
+                    vqu.update_month,
+                    vqu.lodged_month_id,
+                    vqu.queue_count
+                FROM visa_queue_updates vqu
+                JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+                $date_conditions
+            ),
+            MonthlyProcessing AS (
+                SELECT 
+                    curr.update_month,
+                    curr.lodged_month_id,
+                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count
+                FROM MonthlySnapshots curr
+                LEFT JOIN MonthlySnapshots prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM MonthlySnapshots
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+            )
             SELECT 
-                va.*,
-                vt.visa_type,
-                CONCAT(va.financial_year_start, '-', va.financial_year_start + 1) as financial_year
-            FROM visa_allocations va
-            JOIN visa_types vt ON vt.id = va.visa_type_id
-            WHERE va.financial_year_start = ?
-            ORDER BY vt.visa_type
-        ");
+                update_month,
+                SUM(processed_count) as total_processed,
+                GROUP_CONCAT(
+                    CONCAT('Lodged Month ID ', lodged_month_id, ': ', processed_count, ' processed')
+                    ORDER BY lodged_month_id
+                    SEPARATOR '; '
+                ) as details
+            FROM MonthlyProcessing
+            WHERE processed_count > 0
+            GROUP BY update_month
+            ORDER BY update_month DESC
+        ";
         
-        $stmt->execute([$financial_year_start]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, str_repeat('s', count($params)), ...$params);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
         
-    } catch (PDOException $e) {
-        error_log("Error getting all visa allocations: " . $e->getMessage());
+        $monthly_totals = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $monthly_totals[] = [
+                'update_month' => $row['update_month'],
+                'total_processed' => intval($row['total_processed']),
+                'details' => $row['details']
+            ];
+        }
+        
+        return $monthly_totals;
+        
+    } catch (Exception $e) {
+        error_log("Error in getProcessedByMonth: " . $e->getMessage());
         return [];
     }
 }
 
-// #24 - getVisaAllocations
-function getVisaAllocations($visa_type_id) {
-    global $pdo;
-    $currentFY = getCurrentFinancialYear();
-    
+/**
+ * Get Visa Types for Select Dropdown
+ * 
+ * @description Retrieves all visa types from the database for use in select dropdowns
+ * @param object $conn Database connection object
+ * @return array Array of visa types with code and name
+ */
+function getVisaSelect($conn) {
     try {
-        $stmt = $pdo->prepare("
-            SELECT 
-                current.allocation_amount as current_allocation,
-                prev.allocation_amount as previous_allocation
-            FROM visa_allocations current
-            LEFT JOIN visa_allocations prev ON 
-                prev.visa_type_id = current.visa_type_id AND 
-                prev.financial_year_start = current.financial_year_start - 1
-            WHERE current.visa_type_id = ? 
-            AND current.financial_year_start = ?
-        ");
+        $query = "SELECT id as code, visa_type as name FROM visa_types ORDER BY visa_type";
+        $result = mysqli_query($conn, $query);
         
-        $stmt->execute([$visa_type_id, $currentFY]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Error getting visa allocations: " . $e->getMessage());
-        return null;
+        if (!$result) {
+            error_log("MySQL Error in getVisaSelect: " . mysqli_error($conn));
+            return [];
+        }
+        
+        $visaTypes = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $visaTypes[] = $row;
+        }
+        
+        return $visaTypes;
+    } catch (Exception $e) {
+        error_log("Error in getVisaSelect: " . $e->getMessage());
+        return [];
     }
 }
 
-// #25 - getProcessedVisasAge
-function getProcessedVisasAge($visa_type_id) {
-    global $pdo;
+/**
+ * Get Monthly Average Processing Rate
+ * 
+ * @description Calculates the monthly average processing rate for a visa type
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string|null $start_date Optional start date in YYYY-MM-DD format
+ * @param string|null $end_date Optional end date in YYYY-MM-DD format
+ * @return array Monthly average processing rates with details
+ * @example 
+ *   $rates = getMonthlyAverageProcessingRate(190, '2023-01-01', '2023-12-31');
+ * @api_endpoint /api.php?function=getMonthlyAverageProcessingRate&visa_type_id=190&start_date=2023-01-01&end_date=2023-12-31
+ */
+function getMonthlyAverageProcessingRate($visa_type_id, $start_date = null, $end_date = null) {
+    global $conn;
     
     try {
-        // Get the latest month's processing data
-        $stmt = $pdo->prepare("
-            WITH ConsecutiveUpdates AS (
-                SELECT 
-                    qu1.update_month as processing_month,
-                    l.lodged_month,
-                    (qu2.queue_count - qu1.queue_count) as visas_processed
-                FROM visa_queue_updates qu1
-                JOIN visa_queue_updates qu2 ON qu1.lodged_month_id = qu2.lodged_month_id
-                JOIN visa_lodgements l ON l.id = qu1.lodged_month_id
-                WHERE l.visa_type_id = ?
-                AND qu2.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates qu3
-                    WHERE qu3.lodged_month_id = qu1.lodged_month_id
-                    AND qu3.update_month < qu1.update_month
-                )
-                AND qu1.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates
-                    WHERE visa_type_id = ?
-                )
-            )
-            SELECT 
-                processing_month,
-                lodged_month,
-                visas_processed,
-                TIMESTAMPDIFF(MONTH, lodged_month, processing_month) as age_in_months
-            FROM ConsecutiveUpdates
-            WHERE visas_processed > 0
-            ORDER BY lodged_month
-        ");
+        $params = [$visa_type_id];
+        $date_conditions = "";
         
-        $stmt->execute([$visa_type_id, $visa_type_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if ($start_date) {
+            $date_conditions .= " AND vqu.update_month >= ?";
+            $params[] = $start_date;
+        }
+        if ($end_date) {
+            $date_conditions .= " AND vqu.update_month <= ?";
+            $params[] = $end_date;
+        }
         
-    } catch (PDOException $e) {
-        error_log("Error analyzing processed visas age: " . $e->getMessage());
-        return null;
-    }
-}
-
-// #26 - getMonthlyVisaAges
-function getMonthlyVisaAges($visa_type_id) {
-    global $pdo;
-    
-    try {
-        $stmt = $pdo->prepare("
-            WITH ProcessedVisas AS (
+        $query = "
+            WITH MonthlySnapshots AS (
                 SELECT 
-                    qu1.update_month as processing_month,
-                    l.lodged_month,
-                    (qu2.queue_count - qu1.queue_count) as visas_processed,
-                    TIMESTAMPDIFF(MONTH, l.lodged_month, qu1.update_month) as age_in_months
-                FROM visa_queue_updates qu1
-                JOIN visa_queue_updates qu2 ON qu1.lodged_month_id = qu2.lodged_month_id
-                JOIN visa_lodgements l ON l.id = qu1.lodged_month_id
-                WHERE l.visa_type_id = ?
-                AND qu2.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates qu3
-                    WHERE qu3.lodged_month_id = qu1.lodged_month_id
-                    AND qu3.update_month < qu1.update_month
-                )
-                AND (qu2.queue_count - qu1.queue_count) > 0
+                    vqu.update_month,
+                    vqu.lodged_month_id,
+                    vqu.queue_count
+                FROM visa_queue_updates vqu
+                JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+                $date_conditions
             ),
-            MonthlyAverages AS (
+            MonthlyProcessing AS (
                 SELECT 
-                    processing_month,
-                    SUM(visas_processed) as total_processed,
-                    SUM(visas_processed * age_in_months) / SUM(visas_processed) as average_age,
-                    MIN(age_in_months) as youngest_visa,
-                    MAX(age_in_months) as oldest_visa,
-                    (SELECT 
-                        CASE 
-                            -- If we have 3 or more months of data, use last 3 months
-                            WHEN EXISTS (
-                                SELECT 1 FROM ProcessedVisas p3 
-                                WHERE p3.processing_month <= pv1.processing_month 
-                                AND p3.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 2 MONTH)
-                                LIMIT 3
-                            ) THEN (
-                                SELECT SUM(total_processed) / 3
-                                FROM (
-                                    SELECT total_processed
-                                    FROM ProcessedVisas p4 
-                                    WHERE p4.processing_month <= pv1.processing_month 
-                                    AND p4.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 2 MONTH)
-                                    GROUP BY processing_month
-                                    ORDER BY processing_month DESC
-                                    LIMIT 3
-                                ) last_three
-                            )
-                            -- If we have 2 months of data
-                            WHEN EXISTS (
-                                SELECT 1 FROM ProcessedVisas p3 
-                                WHERE p3.processing_month <= pv1.processing_month 
-                                AND p3.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 1 MONTH)
-                                LIMIT 2
-                            ) THEN (
-                                SELECT SUM(total_processed) / 2
-                                FROM (
-                                    SELECT total_processed
-                                    FROM ProcessedVisas p4 
-                                    WHERE p4.processing_month <= pv1.processing_month 
-                                    AND p4.processing_month >= DATE_SUB(pv1.processing_month, INTERVAL 1 MONTH)
-                                    GROUP BY processing_month
-                                    ORDER BY processing_month DESC
-                                    LIMIT 2
-                                ) last_two
-                            )
-                            -- If we only have 1 month of data
-                            ELSE total_processed
-                        END
-                     FROM ProcessedVisas pv1
-                     WHERE pv1.processing_month = pv1.processing_month
-                    ) as weighted_average
-                FROM ProcessedVisas pv1
-                GROUP BY processing_month
-                ORDER BY processing_month DESC
+                    curr.update_month,
+                    curr.lodged_month_id,
+                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count
+                FROM MonthlySnapshots curr
+                LEFT JOIN MonthlySnapshots prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM MonthlySnapshots
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+            ),
+            MonthlyTotals AS (
+                SELECT 
+                    update_month,
+                    SUM(processed_count) as total_processed
+                FROM MonthlyProcessing
+                WHERE processed_count > 0
+                GROUP BY update_month
             )
-            SELECT * FROM MonthlyAverages
-        ");
+            SELECT 
+                update_month,
+                total_processed,
+                AVG(total_processed) OVER (ORDER BY update_month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as running_average
+            FROM MonthlyTotals
+            ORDER BY update_month DESC
+        ";
         
-        $stmt->execute([$visa_type_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, str_repeat('s', count($params)), ...$params);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
         
-    } catch (PDOException $e) {
-        error_log("Error calculating monthly visa ages: " . $e->getMessage());
-        return null;
+        $monthly_averages = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $monthly_averages[] = [
+                'update_month' => $row['update_month'],
+                'total_processed' => intval($row['total_processed']),
+                'running_average' => floatval($row['running_average'])
+            ];
+        }
+        
+        return $monthly_averages;
+        
+    } catch (Exception $e) {
+        error_log("Error in getMonthlyAverageProcessingRate: " . $e->getMessage());
+        return [];
     }
 }
+
+/**
+ * Get Weighted Average Processing Rate
+ * 
+ * @description Calculates the weighted average processing rate for the last three months
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string|null $start_date Optional start date in YYYY-MM-DD format
+ * @param string|null $end_date Optional end date in YYYY-MM-DD format
+ * @return float Weighted average processing rate
+ * @example 
+ *   $weighted_average = getWeightedAverageProcessingRate(190, '2023-01-01', '2023-12-31');
+ * @api_endpoint /api.php?function=getWeightedAverageProcessingRate&visa_type_id=190&start_date=2023-01-01&end_date=2023-12-31
+ */
+function getWeightedAverageProcessingRate($visa_type_id, $start_date = null, $end_date = null) {
+    global $conn;
+    
+    try {
+        $params = [$visa_type_id];
+        $date_conditions = "";
+        
+        if ($start_date) {
+            $date_conditions .= " AND vqu.update_month >= ?";
+            $params[] = $start_date;
+        }
+        if ($end_date) {
+            $date_conditions .= " AND vqu.update_month <= ?";
+            $params[] = $end_date;
+        }
+        
+        $query = "
+            WITH MonthlySnapshots AS (
+                SELECT 
+                    vqu.update_month,
+                    vqu.lodged_month_id,
+                    vqu.queue_count
+                FROM visa_queue_updates vqu
+                JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+                $date_conditions
+            ),
+            MonthlyProcessing AS (
+                SELECT 
+                    curr.update_month,
+                    curr.lodged_month_id,
+                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count
+                FROM MonthlySnapshots curr
+                LEFT JOIN MonthlySnapshots prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM MonthlySnapshots
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+            ),
+            MonthlyTotals AS (
+                SELECT 
+                    update_month,
+                    SUM(processed_count) as total_processed
+                FROM MonthlyProcessing
+                WHERE processed_count > 0
+                GROUP BY update_month
+                ORDER BY update_month DESC
+                LIMIT 3
+            )
+            SELECT 
+                SUM(total_processed) as total_processed,
+                COUNT(*) as months_count
+            FROM MonthlyTotals
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, str_repeat('s', count($params)), ...$params);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
+        $row = mysqli_fetch_assoc($result);
+        if ($row['months_count'] > 0) {
+            return $row['total_processed'] / $row['months_count'];
+        } else {
+            return 0; // No data available
+        }
+        
+    } catch (Exception $e) {
+        error_log("Error in getWeightedAverageProcessingRate: " . $e->getMessage());
+        return 0;
+    }
+}
+
+/**
+ * Get Annual Allocation
+ * 
+ * @description Retrieves the annual allocation for a specific visa type
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @return array Annual allocation details
+ */
+function getAnnualAllocation($visa_type_id) {
+    global $conn;
+    
+    try {
+        $fy_dates = getCurrentFinancialYearDates();
+        error_log("Getting annual allocation for visa_type_id: $visa_type_id and FY: " . print_r($fy_dates, true));
+        
+        // First check if the visa type exists
+        $check_visa_query = "SELECT visa_type FROM visa_types WHERE id = ?";
+        $stmt = mysqli_prepare($conn, $check_visa_query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $visa_result = mysqli_stmt_get_result($stmt);
+        $visa_type = mysqli_fetch_assoc($visa_result);
+        
+        if (!$visa_type) {
+            error_log("Visa type $visa_type_id not found in database");
+            return [];
+        }
+        
+        error_log("Found visa type: " . print_r($visa_type, true));
+        
+        // Debug: Check all allocations for this visa type
+        $debug_query = "SELECT * FROM visa_allocations WHERE visa_type_id = ?";
+        $stmt = mysqli_prepare($conn, $debug_query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $debug_result = mysqli_stmt_get_result($stmt);
+        $all_allocations = [];
+        while ($row = mysqli_fetch_assoc($debug_result)) {
+            $all_allocations[] = $row;
+        }
+        error_log("All allocations for this visa type: " . print_r($all_allocations, true));
+        
+        // First try to get current FY allocation
+        $query = "
+            SELECT financial_year_start, allocation_amount
+            FROM visa_allocations
+            WHERE visa_type_id = ?
+            AND financial_year_start = ?
+        ";
+        
+        error_log("Executing query with visa_type_id: $visa_type_id and fy_start_year: {$fy_dates['fy_start_year']}");
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'ii', $visa_type_id, $fy_dates['fy_start_year']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
+        if (!$result) {
+            error_log("MySQL Error: " . mysqli_error($conn));
+            return [];
+        }
+        
+        $allocations = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $allocations[] = [
+                'financial_year_start' => intval($row['financial_year_start']),
+                'allocation_amount' => intval($row['allocation_amount'])
+            ];
+        }
+        
+        // If no allocations found for current FY, try getting the most recent allocation
+        if (empty($allocations)) {
+            error_log("No current FY allocation found for visa type $visa_type_id, checking most recent");
+            
+            $query = "
+                SELECT financial_year_start, allocation_amount
+                FROM visa_allocations
+                WHERE visa_type_id = ?
+                ORDER BY financial_year_start DESC
+                LIMIT 1
+            ";
+            
+            $stmt = mysqli_prepare($conn, $query);
+            mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            
+            if (!$result) {
+                error_log("MySQL Error in fallback query: " . mysqli_error($conn));
+                return [];
+            }
+            
+            while ($row = mysqli_fetch_assoc($result)) {
+                $allocations[] = [
+                    'financial_year_start' => intval($row['financial_year_start']),
+                    'allocation_amount' => intval($row['allocation_amount'])
+                ];
+            }
+        }
+        
+        // Add debug logging
+        error_log("Annual allocation query result for visa type $visa_type_id: " . print_r($allocations, true));
+        
+        return $allocations;
+        
+    } catch (Exception $e) {
+        error_log("Error in getAnnualAllocation: " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        return [];
+    }
+}
+
+/**
+ * Get Cases Ahead in Queue
+ * 
+ * @description Calculates the number of visa applications lodged before a given date
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string $lodgement_date The lodgement date in YYYY-MM-DD format
+ * @return array Cases ahead details including total count and breakdown
+ * @example 
+ *   $cases_ahead = getCasesAheadInQueue(190, '2023-07-10');
+ * @api_endpoint /api.php?function=getCasesAheadInQueue&visa_type_id=190&lodgement_date=2023-07-10
+ */
+function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
+    global $conn;
+    
+    try {
+        // First get the latest update date
+        $latest_update_query = "
+            SELECT MAX(update_month) as latest_update
+            FROM visa_queue_updates vqu
+            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+            WHERE vl.visa_type_id = ?
+        ";
+        
+        $stmt = mysqli_prepare($conn, $latest_update_query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $latest_update = mysqli_fetch_assoc($result)['latest_update'];
+        
+        if (!$latest_update) {
+            return ['error' => 'No queue data available'];
+        }
+        
+        // Get cases ahead in queue
+        $query = "
+            WITH LatestCounts AS (
+                SELECT 
+                    vl.lodged_month,
+                    vqu.queue_count,
+                    vqu.update_month
+                FROM visa_lodgements vl
+                JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+                WHERE vl.visa_type_id = ?
+                AND vqu.update_month = ?
+                AND vl.lodged_month < ?
+            )
+            SELECT 
+                SUM(queue_count) as total_ahead,
+                JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'lodged_month', lodged_month,
+                        'queue_count', queue_count
+                    )
+                ) as breakdown
+            FROM LatestCounts
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'iss', $visa_type_id, $latest_update, $lodgement_date);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        
+        if ($row) {
+            return [
+                'total_ahead' => intval($row['total_ahead']),
+                'latest_update' => $latest_update,
+                'breakdown' => json_decode($row['breakdown'], true),
+                'lodgement_date' => $lodgement_date
+            ];
+        }
+        
+        return ['error' => 'No cases found'];
+        
+    } catch (Exception $e) {
+        error_log("Error in getCasesAheadInQueue: " . $e->getMessage());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Total Processed To Date
+ * 
+ * @description Calculates the total number of visas processed in the current financial year
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @return array Total processed count and details for current financial year
+ */
+function getTotalProcessedToDate($visa_type_id) {
+    global $conn;
+    
+    try {
+        // Get the processed count from getAllocationsRemaining since it has the correct calculation
+        $allocations = getAllocationsRemaining($visa_type_id);
+        
+        if (isset($allocations['error'])) {
+            return $allocations;
+        }
+        
+        // Return the data in the expected format
+        return [
+            'total_processed' => $allocations['total_processed'],
+            'first_update' => null,  // These aren't needed since we're using the allocations data
+            'latest_update' => null,
+            'financial_year' => $allocations['financial_year'],
+            'monthly_breakdown' => $allocations['monthly_breakdown']
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error in getTotalProcessedToDate: " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Priority Cases
+ * 
+ * @description Calculates the number of visas processed in current FY with lodgement dates after the given date
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string $lodgement_date The reference lodgement date in YYYY-MM-DD format
+ * @return array Priority cases count and details
+ * @example 
+ *   $priority_cases = getPriorityCases(190, '2023-07-10');
+ * @api_endpoint /api.php?function=getPriorityCases&visa_type_id=190&lodgement_date=2023-07-10
+ */
+function getPriorityCases($visa_type_id, $lodgement_date) {
+    global $conn;
+    
+    try {
+        $fy_dates = getCurrentFinancialYearDates();
+        
+        $query = "
+            WITH MonthlySnapshots AS (
+                SELECT 
+                    vqu.update_month,
+                    vqu.lodged_month_id,
+                    vqu.queue_count,
+                    vl.lodged_month
+                FROM visa_queue_updates vqu
+                JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+                AND vqu.update_month BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND ?
+                AND vl.lodged_month > ?
+            ),
+            ProcessingSummary AS (
+                SELECT 
+                    curr.update_month,
+                    SUM(GREATEST(0, prev.queue_count - curr.queue_count)) as monthly_total
+                FROM MonthlySnapshots curr
+                LEFT JOIN MonthlySnapshots prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM MonthlySnapshots
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+                WHERE curr.update_month BETWEEN ? AND ?
+                GROUP BY curr.update_month
+                HAVING monthly_total > 0
+            )
+            SELECT 
+                SUM(monthly_total) as total_priority,
+                GROUP_CONCAT(
+                    CONCAT(update_month, ': ', monthly_total)
+                    ORDER BY update_month
+                    SEPARATOR '; '
+                ) as monthly_breakdown
+            FROM ProcessingSummary
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'isssss', 
+            $visa_type_id, 
+            $fy_dates['start_date'],  // For DATE_SUB
+            $fy_dates['end_date'],    // For MonthlySnapshots BETWEEN end
+            $lodgement_date,          // For priority cutoff
+            $fy_dates['start_date'],  // For ProcessingSummary BETWEEN start
+            $fy_dates['end_date']     // For ProcessingSummary BETWEEN end
+        );
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $processed = mysqli_fetch_assoc($result);
+        
+        return [
+            'total_priority' => intval($processed['total_priority']),
+            'monthly_breakdown' => explode('; ', $processed['monthly_breakdown']),
+            'financial_year' => $fy_dates['fy_label'],
+            'reference_date' => $lodgement_date
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error in getPriorityCases: " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Priority Ratio
+ * 
+ * @description Calculates the ratio of priority cases vs non-priority cases processed in current FY
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string $lodgement_date The reference lodgement date in YYYY-MM-DD format
+ * @return array Priority ratio details including percentages and counts
+ * @example 
+ *   $priority_ratio = getPriorityRatio(190, '2023-07-10');
+ * @api_endpoint /api.php?function=getPriorityRatio&visa_type_id=190&lodgement_date=2023-07-10
+ */
+function getPriorityRatio($visa_type_id, $lodgement_date) {
+    global $conn;
+    
+    try {
+        $fy_dates = getCurrentFinancialYearDates();
+        
+        $query = "
+            WITH MonthlySnapshots AS (
+                SELECT 
+                    vqu.update_month,
+                    vqu.lodged_month_id,
+                    vqu.queue_count,
+                    vl.lodged_month
+                FROM visa_queue_updates vqu
+                JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+                AND vqu.update_month BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND ?
+            ),
+            ProcessingSummary AS (
+                SELECT 
+                    curr.update_month,
+                    curr.lodged_month,
+                    SUM(GREATEST(0, prev.queue_count - curr.queue_count)) as monthly_total
+                FROM MonthlySnapshots curr
+                LEFT JOIN MonthlySnapshots prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM MonthlySnapshots
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+                WHERE curr.update_month BETWEEN ? AND ?
+                GROUP BY curr.update_month, curr.lodged_month
+                HAVING monthly_total > 0
+            ),
+            PriorityTotals AS (
+                SELECT 
+                    SUM(CASE WHEN lodged_month > ? THEN monthly_total ELSE 0 END) as priority_count,
+                    SUM(CASE WHEN lodged_month <= ? THEN monthly_total ELSE 0 END) as non_priority_count,
+                    SUM(monthly_total) as total_processed
+                FROM ProcessingSummary
+            )
+            SELECT 
+                priority_count,
+                non_priority_count,
+                total_processed,
+                ROUND((priority_count / total_processed) * 100, 1) as priority_percentage,
+                ROUND((non_priority_count / total_processed) * 100, 1) as non_priority_percentage
+            FROM PriorityTotals
+            WHERE total_processed > 0
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'issssss', 
+            $visa_type_id, 
+            $fy_dates['start_date'],  // For DATE_SUB
+            $fy_dates['end_date'],    // For MonthlySnapshots BETWEEN end
+            $fy_dates['start_date'],  // For ProcessingSummary BETWEEN start
+            $fy_dates['end_date'],    // For ProcessingSummary BETWEEN end
+            $lodgement_date,          // For priority cutoff
+            $lodgement_date           // For non-priority cutoff
+        );
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        
+        if ($row && $row['total_processed'] > 0) {
+            return [
+                'priority_count' => intval($row['priority_count']),
+                'non_priority_count' => intval($row['non_priority_count']),
+                'total_processed' => intval($row['total_processed']),
+                'priority_percentage' => floatval($row['priority_percentage']),
+                'non_priority_percentage' => floatval($row['non_priority_percentage']),
+                'financial_year' => $fy_dates['fy_label'],
+                'reference_date' => $lodgement_date
+            ];
+        }
+        
+        return ['error' => 'No processing data available'];
+        
+    } catch (Exception $e) {
+        error_log("Error in getPriorityRatio: " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Allocations Remaining
+ * 
+ * @description Calculates remaining visa allocations for current financial year
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @return array Remaining allocation details
+ */
+function getAllocationsRemaining($visa_type_id) {
+    global $conn;
+    
+    try {
+        $fy_dates = getCurrentFinancialYearDates();
+        
+        // Get annual allocation for current FY
+        $allocation_query = "
+            SELECT allocation_amount
+            FROM visa_allocations
+            WHERE visa_type_id = ?
+            AND financial_year_start = ?
+        ";
+        
+        $stmt = mysqli_prepare($conn, $allocation_query);
+        mysqli_stmt_bind_param($stmt, 'ii', $visa_type_id, $fy_dates['fy_start_year']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $allocation = mysqli_fetch_assoc($result);
+        
+        if (!$allocation) {
+            return ['error' => 'No allocation found for current financial year'];
+        }
+        
+        // Get total processed this FY using the same query structure as getTotalProcessedToDate
+        $processed_query = "
+            WITH MonthlySnapshots AS (
+                SELECT 
+                    vqu.update_month,
+                    vqu.lodged_month_id,
+                    vqu.queue_count,
+                    vl.lodged_month
+                FROM visa_queue_updates vqu
+                JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+                WHERE vl.visa_type_id = ?
+                AND vqu.update_month BETWEEN DATE_SUB(?, INTERVAL 1 MONTH) AND ?
+            ),
+            ProcessingSummary AS (
+                SELECT 
+                    curr.update_month,
+                    SUM(GREATEST(0, prev.queue_count - curr.queue_count)) as monthly_total
+                FROM MonthlySnapshots curr
+                LEFT JOIN MonthlySnapshots prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM MonthlySnapshots
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+                WHERE curr.update_month BETWEEN ? AND ?
+                GROUP BY curr.update_month
+                HAVING monthly_total > 0
+            )
+            SELECT 
+                SUM(monthly_total) as total_processed,
+                GROUP_CONCAT(
+                    CONCAT(update_month, ': ', monthly_total)
+                    ORDER BY update_month
+                    SEPARATOR '; '
+                ) as monthly_breakdown
+            FROM ProcessingSummary
+        ";
+        
+        $stmt = mysqli_prepare($conn, $processed_query);
+        mysqli_stmt_bind_param($stmt, 'issss', 
+            $visa_type_id, 
+            $fy_dates['start_date'],  // For DATE_SUB
+            $fy_dates['end_date'],    // For MonthlySnapshots BETWEEN end
+            $fy_dates['start_date'],  // For ProcessingSummary BETWEEN start
+            $fy_dates['end_date']     // For ProcessingSummary BETWEEN end
+        );
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $processed = mysqli_fetch_assoc($result);
+        
+        $total_allocation = intval($allocation['allocation_amount']);
+        $total_processed = intval($processed['total_processed']);
+        $remaining = max(0, $total_allocation - $total_processed);
+        
+        // Add debug logging
+        error_log("Allocations calculation: Total={$total_allocation}, Processed={$total_processed}, Remaining={$remaining}");
+        error_log("Monthly processing breakdown: " . $processed['monthly_breakdown']);
+        
+        return [
+            'total_allocation' => $total_allocation,
+            'total_processed' => $total_processed,
+            'remaining' => $remaining,
+            'financial_year' => $fy_dates['fy_label'],
+            'percentage_used' => $total_allocation > 0 ? 
+                round(($total_processed / $total_allocation) * 100, 1) : 0,
+            'monthly_breakdown' => explode('; ', $processed['monthly_breakdown'])
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error in getAllocationsRemaining: " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Visa Processing Prediction
+ * 
+ * @description Calculates estimated processing time based on queue position and processing rates
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string $lodgement_date The reference lodgement date in YYYY-MM-DD format
+ * @return array Prediction details including estimated dates and confidence levels
+ */
+function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
+    global $conn;
+    
+    try {
+        // Get required data
+        $cases_ahead = getCasesAheadInQueue($visa_type_id, $lodgement_date);
+        $allocations = getAllocationsRemaining($visa_type_id);
+        $priority_ratio = getPriorityRatio($visa_type_id, $lodgement_date);
+        
+        // Validate required data
+        if (isset($cases_ahead['error']) || isset($allocations['error']) || isset($priority_ratio['error'])) {
+            return ['error' => 'Insufficient data for prediction'];
+        }
+        
+        // Calculate non-priority places remaining
+        $priority_percentage = $priority_ratio['priority_percentage'] / 100;
+        $non_priority_ratio = 1 - $priority_percentage;
+        $non_priority_places = round($allocations['remaining'] * $non_priority_ratio);
+        
+        // Check if processing likely in next FY
+        if ($cases_ahead['total_ahead'] > $non_priority_places) {
+            return [
+                'next_fy' => true,
+                'message' => 'Processing likely in next financial year. Prediction available after budget announcement.',
+                'cases_ahead' => $cases_ahead['total_ahead'],
+                'places_remaining' => $non_priority_places,
+                'last_update' => $cases_ahead['latest_update'],
+                'steps' => [
+                    'priority_percentage' => $priority_percentage,
+                    'non_priority_ratio' => $non_priority_ratio,
+                    'non_priority_places' => $non_priority_places
+                ]
+            ];
+        }
+        
+        // Get processing rate data
+        $weighted_average = getWeightedAverageProcessingRate($visa_type_id);
+        if (!$weighted_average) {
+            return ['error' => 'Unable to calculate processing rate'];
+        }
+        
+        // Calculate non-priority processing rate
+        $non_priority_rate = $weighted_average * $non_priority_ratio;
+        
+        // Calculate cases for different percentiles
+        $total_cases = $cases_ahead['total_ahead'];
+        $ninety_percentile_cases = ceil($total_cases * 0.9); // 90% of cases ahead
+        $eighty_percentile_cases = ceil($total_cases * 0.8); // 80% of cases ahead
+        
+        // Calculate months to process for each scenario
+        $months_to_process = $total_cases / $non_priority_rate;
+        $months_to_ninety = $ninety_percentile_cases / $non_priority_rate;
+        $months_to_eighty = $eighty_percentile_cases / $non_priority_rate;
+        
+        // Calculate days for each scenario
+        $days_to_process = ceil($months_to_process * 30.44);
+        $days_to_ninety = ceil($months_to_ninety * 30.44);
+        $days_to_eighty = ceil($months_to_eighty * 30.44);
+        
+        // Calculate prediction dates
+        $latest_update = new DateTime($cases_ahead['latest_update']);
+        
+        $latest_date = clone $latest_update;
+        $latest_date->add(new DateInterval("P{$days_to_process}D"));
+        
+        $ninety_percent = clone $latest_update;
+        $ninety_percent->add(new DateInterval("P{$days_to_ninety}D"));
+        
+        $eighty_percent = clone $latest_update;
+        $eighty_percent->add(new DateInterval("P{$days_to_eighty}D"));
+        
+        return [
+            'next_fy' => false,
+            'latest_date' => $latest_date->format('Y-m-d'),
+            'ninety_percent' => $ninety_percent->format('Y-m-d'),
+            'eighty_percent' => $eighty_percent->format('Y-m-d'),
+            'cases_ahead' => $total_cases,
+            'places_remaining' => $non_priority_places,
+            'last_update' => $cases_ahead['latest_update'],
+            'steps' => [
+                'priority_percentage' => $priority_percentage,
+                'non_priority_ratio' => $non_priority_ratio,
+                'non_priority_places' => $non_priority_places,
+                'non_priority_rate' => round($non_priority_rate, 1),
+                'weighted_average' => round($weighted_average, 1),
+                'months_to_process' => round($months_to_process, 1),
+                'total_cases' => $total_cases,
+                'ninety_percentile_cases' => $ninety_percentile_cases,
+                'eighty_percentile_cases' => $eighty_percentile_cases
+            ]
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error in getVisaProcessingPrediction: " . $e->getMessage());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Financial Year Dates
+ * 
+ * @description Calculates financial year dates considering data is reported in arrears
+ * @return array Start and end dates for the current financial year
+ */
+function getCurrentFinancialYearDates() {
+    $current_date = new DateTime();
+    $current_year = (int)$current_date->format('Y');
+    $current_month = (int)$current_date->format('m');
+    
+    // If we're in July or later, FY starts this year
+    $fy_start_year = ($current_month >= 7) ? $current_year : $current_year - 1;
+    
+    return [
+        'start_date' => sprintf('%d-07-01', $fy_start_year),  // July
+        'end_date' => sprintf('%d-06-30', $fy_start_year + 1),  // June next year
+        'fy_start_year' => $fy_start_year,
+        'fy_label' => sprintf('FY%d-%d', $fy_start_year, ($fy_start_year + 1) % 100)
+    ];
+}
+
+// Continue with other core functions...
 ?> 
+

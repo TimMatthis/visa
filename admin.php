@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get all visa types
-$visa_types = getAllVisaTypes();
+$visa_types = getAllVisaTypes($conn);
 ?>
 
 <!DOCTYPE html>
@@ -114,6 +114,109 @@ $visa_types = getAllVisaTypes();
     <title>Admin Dashboard - Visa Predictor</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Add this script block in the head -->
+    <script>
+        // Make switchTab globally available
+        window.switchTab = function(tabId) {
+            console.log('Switching to tab:', tabId);
+            
+            // Hide all tab contents
+            var tabContents = document.querySelectorAll('.tab-content');
+            console.log('Found tab contents:', tabContents.length);
+            
+            tabContents.forEach(function(tab) {
+                tab.style.display = 'none';
+                console.log('Hiding tab:', tab.id);
+            });
+
+            // Remove active class from all buttons
+            var tabButtons = document.querySelectorAll('.tab-btn');
+            console.log('Found tab buttons:', tabButtons.length);
+            
+            tabButtons.forEach(function(button) {
+                button.classList.remove('active');
+                console.log('Removing active class from button:', button.textContent);
+            });
+
+            // Show the selected tab content
+            var selectedTab = document.getElementById(tabId);
+            if (selectedTab) {
+                console.log('Showing selected tab:', tabId);
+                selectedTab.style.display = 'block';
+            } else {
+                console.error('Could not find tab with id:', tabId);
+            }
+
+            // Add active class to the clicked button
+            var activeButton = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
+            if (activeButton) {
+                console.log('Setting active button:', activeButton.textContent);
+                activeButton.classList.add('active');
+            } else {
+                console.error('Could not find button for tab:', tabId);
+            }
+        };
+
+        // Initialize when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Show the first tab by default
+            switchTab('import');
+
+            // If there's an import preview, make sure we're on the import tab
+            if (document.querySelector('.import-preview-section')) {
+                switchTab('import');
+            }
+        });
+
+        // Make openVisaTab globally available
+        window.openVisaTab = function(evt, tabId) {
+            // Hide all visa tab content
+            var visaTabContents = document.querySelectorAll('.visa-tab-content');
+            visaTabContents.forEach(function(content) {
+                content.style.display = 'none';
+            });
+
+            // Remove active class from all visa tab buttons
+            var visaTabButtons = document.querySelectorAll('.visa-tab-btn');
+            visaTabButtons.forEach(function(button) {
+                button.classList.remove('active');
+            });
+
+            // Show the selected tab content and mark button as active
+            var selectedTab = document.getElementById(tabId);
+            if (selectedTab) {
+                selectedTab.style.display = 'block';
+            }
+            
+            // Add active class to clicked button
+            if (evt && evt.currentTarget) {
+                evt.currentTarget.classList.add('active');
+            }
+
+            // Store active visa tab in session storage
+            sessionStorage.setItem('activeVisaTab', tabId);
+        };
+
+        // Initialize visa tabs when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Restore last active visa tab or show first tab
+            var activeVisaTab = sessionStorage.getItem('activeVisaTab');
+            if (activeVisaTab) {
+                var activeButton = document.querySelector(`[onclick="openVisaTab(event, '${activeVisaTab}')"]`);
+                if (activeButton) {
+                    openVisaTab({ currentTarget: activeButton }, activeVisaTab);
+                }
+            } else {
+                // Show first visa tab by default
+                var firstVisaTab = document.querySelector('.visa-tab-btn');
+                if (firstVisaTab) {
+                    var firstTabId = firstVisaTab.getAttribute('onclick').match(/'([^']+)'/)[1];
+                    openVisaTab({ currentTarget: firstVisaTab }, firstTabId);
+                }
+            }
+        });
+    </script>
 </head>
 <body>
     <div id="loading-overlay" style="display: none;">
@@ -197,15 +300,15 @@ $visa_types = getAllVisaTypes();
         <?php endif; ?>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="openTab(event, 'import')">1. Import Data</button>
-            <button class="tab-btn" onclick="openTab(event, 'view')">2. View Queue Data</button>
-            <button class="tab-btn" onclick="openTab(event, 'manage')">3. Manage Visa Types</button>
-            <button class="tab-btn" onclick="openTab(event, 'settings')">4. Data Management</button>
-            <button class="tab-btn" onclick="openTab(event, 'summary')">5. Data Summary</button>
+            <button class="tab-btn active" onclick="switchTab('import')">1. Import Data</button>
+            <button class="tab-btn" onclick="switchTab('view')">2. View Queue Data</button>
+            <button class="tab-btn" onclick="switchTab('manage')">3. Manage Visa Types</button>
+            <button class="tab-btn" onclick="switchTab('settings')">4. Data Management</button>
+            <button class="tab-btn" onclick="switchTab('summary')">5. Data Summary</button>
         </div>
 
-        <div id="import" class="tab-content active">
-        <section class="upload-section">
+        <div id="import" class="tab-content" style="display: block;">
+            <section class="upload-section">
                 <h2>2. Import Processing Data</h2>
                 <div class="import-instructions">
                     <h3>File Requirements</h3>
@@ -239,7 +342,7 @@ $visa_types = getAllVisaTypes();
             </section>
         </div>
 
-        <div id="view" class="tab-content">
+        <div id="view" class="tab-content" style="display: none;">
             <section class="data-view-section">
                 <h2>3. View Visa Queue Data</h2>
                 <form action="" method="GET" class="visa-selector">
@@ -308,7 +411,7 @@ $visa_types = getAllVisaTypes();
             </section>
         </div>
 
-        <div id="manage" class="tab-content">
+        <div id="manage" class="tab-content" style="display: none;">
             <section class="admin-section">
                 <h2>4. Manage Visa Types</h2>
                 <div class="visa-types-container">
@@ -351,7 +454,7 @@ $visa_types = getAllVisaTypes();
             </section>
         </div>
 
-        <div id="settings" class="tab-content">
+        <div id="settings" class="tab-content" style="display: none;">
             <section class="admin-section">
                 <h2>5. Data Management</h2>
                 <div class="warning-box">
@@ -374,7 +477,7 @@ $visa_types = getAllVisaTypes();
         </section>
         </div>
 
-        <div id="summary" class="tab-content">
+        <div id="summary" class="tab-content" style="display: none;">
             <section class="admin-section">
                 <h2>Data Summary</h2>
                 
@@ -555,6 +658,29 @@ $visa_types = getAllVisaTypes();
         </div>
     </div>
     <script>
+    // Visa tab functionality
+    function openVisaTab(evt, tabId) {
+        // Hide all visa tab content
+        const tabContents = document.getElementsByClassName("visa-tab-content");
+        for (let content of tabContents) {
+            content.style.display = "none";
+        }
+
+        // Remove active class from all visa tab buttons
+        const tabButtons = document.getElementsByClassName("visa-tab-btn");
+        for (let button of tabButtons) {
+            button.classList.remove("active");
+        }
+
+        // Show the selected tab content and mark button as active
+        document.getElementById(tabId).style.display = "block";
+        evt.currentTarget.classList.add("active");
+
+        // Store the active visa tab in session storage
+        sessionStorage.setItem('activeVisaTab', tabId);
+    }
+
+    // Initialize Chart.js if needed
     function initializeChart(queueData) {
         const ctx = document.getElementById('processingTrends').getContext('2d');
         
@@ -616,103 +742,15 @@ $visa_types = getAllVisaTypes();
         });
     }
 
+    // Form submission handler for import
+    function startImport(form) {
+        document.getElementById('loading-overlay').style.display = 'flex';
+        return true;
+    }
+
     <?php if (isset($queue_data) && $queue_data): ?>
         initializeChart(<?php echo json_encode($queue_data['lodgements']); ?>);
     <?php endif; ?>
-
-    function confirmImport(form) {
-        // Trigger file selection
-        form.dataFile.click();
-        return false;
-    }
-
-    // Handle file selection
-    document.querySelector('input[name="dataFile"]').addEventListener('change', function(e) {
-        if (this.files[0].name !== this.form.original_file.value) {
-            alert('Please select the same file that was previewed.');
-            return false;
-        }
-        this.form.submit();
-    });
-
-    function confirmPurge(form) {
-        const visaType = form.purge_visa_type.value;
-        const message = visaType ? 
-            `Are you sure you want to purge all data for visa type ${visaType}?` :
-            'Are you sure you want to purge ALL visa data? This cannot be undone!';
-        
-        return confirm(message);
-    }
-
-    function openTab(evt, tabName) {
-        // Hide all tab content
-        const tabContents = document.getElementsByClassName("tab-content");
-        for (let content of tabContents) {
-            content.classList.remove("active");
-        }
-
-        // Remove active class from all tab buttons
-        const tabButtons = document.getElementsByClassName("tab-btn");
-        for (let button of tabButtons) {
-            button.classList.remove("active");
-        }
-
-        // Show the selected tab content and mark button as active
-        document.getElementById(tabName).classList.add("active");
-        evt.currentTarget.classList.add("active");
-
-        // Store the active tab in session storage
-        sessionStorage.setItem('activeTab', tabName);
-    }
-
-    // Set the default tab or restore last active tab
-    document.addEventListener('DOMContentLoaded', function() {
-        const activeTab = sessionStorage.getItem('activeTab') || 'import';
-        const activeButton = document.querySelector(`[onclick="openTab(event, '${activeTab}')"]`);
-        if (activeButton) {
-            openTab({ currentTarget: activeButton }, activeTab);
-        }
-        
-        // If there's an import preview, switch to import tab
-        if (document.querySelector('.import-preview-section')) {
-            openTab({ currentTarget: document.querySelector('[onclick="openTab(event, \'import\')"]')}, 'import');
-        }
-    });
-
-    function openVisaTab(evt, tabId) {
-        // Hide all visa tab content
-        const tabContents = document.getElementsByClassName("visa-tab-content");
-        for (let content of tabContents) {
-            content.style.display = "none";
-        }
-
-        // Remove active class from all visa tab buttons
-        const tabButtons = document.getElementsByClassName("visa-tab-btn");
-        for (let button of tabButtons) {
-            button.classList.remove("active");
-        }
-
-        // Show the selected tab content and mark button as active
-        document.getElementById(tabId).style.display = "block";
-        evt.currentTarget.classList.add("active");
-
-        // Store the active visa tab in session storage
-        sessionStorage.setItem('activeVisaTab', tabId);
-    }
-
-    // Add this to the DOMContentLoaded event listener
-    document.addEventListener('DOMContentLoaded', function() {
-        // ... existing code ...
-        
-        // Set default visa tab or restore last active visa tab
-        const activeVisaTab = sessionStorage.getItem('activeVisaTab');
-        if (activeVisaTab) {
-            const activeVisaButton = document.querySelector(`[onclick="openVisaTab(event, '${activeVisaTab}')"]`);
-            if (activeVisaButton) {
-                openVisaTab({ currentTarget: activeVisaButton }, activeVisaTab);
-            }
-        }
-    });
     </script>
 
     <style>

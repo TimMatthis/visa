@@ -1,20 +1,16 @@
 <?php
-define('DB_HOST', 'localhost');
-define('DB_USER', 'visa');
-define('DB_PASS', 'visa');
-define('DB_NAME', 'visas');
-
+$host = 'localhost';
+$dbname = 'visas';
+$username = 'visa';
+$password = 'visa';
 
 try {
-    $pdo = new PDO(
-        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8",
-        DB_USER,
-        DB_PASS
-    );
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch(PDOException $e) {
-    echo "Connection failed: " . $e->getMessage() . "<br>";
-    echo "Error code: " . $e->getCode() . "<br>";
-    exit;
+    $conn = mysqli_connect($host, $username, $password, $dbname);
+    if (!$conn) {
+        throw new Exception("Connection failed: " . mysqli_connect_error());
+    }
+} catch (Exception $e) {
+    error_log("Database connection failed: " . $e->getMessage());
+    die("Database connection failed. Please try again later.");
 }
 ?> 
