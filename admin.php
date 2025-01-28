@@ -1,14 +1,20 @@
 <?php
-require_once 'config/database.php';
-require_once 'includes/functions.php';
+// Set a custom error log file path
+ini_set('error_log', __DIR__ . '/error_log.txt');
 
 // Add basic authentication for admin page
 session_start();
+error_log("Session ID at start: " . session_id());
+error_log("Session data at start: " . print_r($_SESSION, true));
+
+require_once 'config/database.php';
+require_once 'includes/functions.php';
 
 // Simple authentication
 if (!isset($_SESSION['admin'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
-        if ($_POST['password'] === 'admin123') { // Change this to a secure password
+        if ($_POST['password'] === 'Australopus12345') { // Change this to a secure password
+            session_regenerate_id(true); // Regenerate session ID on successful login
             $_SESSION['admin'] = true;
         } else {
             $error = "Invalid password";
@@ -17,7 +23,7 @@ if (!isset($_SESSION['admin'])) {
     
     if (!isset($_SESSION['admin'])) {
         include 'admin_login.php';
-    exit;
+        exit;
     }
 }
 
@@ -26,7 +32,7 @@ $message = '';
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     error_log("POST request received: " . print_r($_POST, true));
-    error_log("FILES received: " . print_r($_FILES, true));
+    error_log("Session data before processing POST: " . print_r($_SESSION, true));
     
     if (isset($_FILES['dataFile'])) {
         if (empty($_POST['visa_type_select'])) {
@@ -78,10 +84,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     } elseif (isset($_POST['add_visa_type'])) {
         $visa_type = $_POST['visa_type'];
-        $message = addVisaType($visa_type);
+        $message = addVisaType($visa_type, $conn);
+        error_log("Add visa type result: " . print_r($message, true));
     } elseif (isset($_POST['delete_visa_type'])) {
         $id = $_POST['id'];
-        $message = deleteVisaType($id);
+        $message = deleteVisaType($id, $conn);
     } elseif (isset($_POST['clear_page'])) {
         clearImportSession();
         header('Location: ' . $_SERVER['PHP_SELF']);
@@ -100,6 +107,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = ['status' => 'error', 'message' => 'Error updating visa allocation'];
         }
     }
+
+    error_log("Session data at end: " . print_r($_SESSION, true));
 }
 
 // Get all visa types
@@ -216,28 +225,47 @@ $visa_types = getAllVisaTypes($conn);
                 }
             }
         });
+
+        function openTab(event, tabId) {
+            // Hide all tab contents
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(tab => tab.style.display = 'none');
+
+            // Remove active class from all tab buttons
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            tabButtons.forEach(button => button.classList.remove('active'));
+
+            // Show the selected tab content
+            document.getElementById(tabId).style.display = 'block';
+
+            // Add active class to the clicked tab button
+            event.currentTarget.classList.add('active');
+        }
+
+        // Initialize the first tab as active
+        document.addEventListener('DOMContentLoaded', function() {
+            const firstTabButton = document.querySelector('.tab-btn');
+            if (firstTabButton) {
+                firstTabButton.click();
+            }
+        });
     </script>
 </head>
 <body>
+    <!-- Navigation header -->
+    <div class="top-nav">
+        <div class="nav-container">
+            <a href="index.php" class="admin-link">Home</a>
+            <a href="logout.php" class="admin-link">Logout</a>
+        </div>
+    </div>
+
     <div id="loading-overlay" style="display: none;">
         <div class="loading-content">
             <div class="spinner"></div>
             <p>Processing Import...</p>
         </div>
     </div>
-
-    <nav class="nav-header">
-        <div class="nav-container">
-            <a href="index.php" class="admin-link">Back to Site</a>
-           
- <form method="POST" style="display: inline;">
-                <button type="submit" name="clear_page" class="admin-link">Clear Page</button>
-            </form>
-           
-
-            <a href="logout.php" class="admin-link">Logout</a>
-        </div>
-    </nav>
 
     <div class="container">
         <h1>Visa Data Management</h1>
@@ -302,9 +330,9 @@ $visa_types = getAllVisaTypes($conn);
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('import')">1. Import Data</button>
             <button class="tab-btn" onclick="switchTab('view')">2. View Queue Data</button>
-            <button class="tab-btn" onclick="switchTab('manage')">3. Manage Visa Types</button>
-            <button class="tab-btn" onclick="switchTab('settings')">4. Data Management</button>
-            <button class="tab-btn" onclick="switchTab('summary')">5. Data Summary</button>
+            <button class="tab-btn" onclick="openTab(event, 'manageVisaTypes')">Manage Visa Types</button>
+            <button class="tab-btn" onclick="openTab(event, 'dataManagement')">Data Management</button>
+            <button class="tab-btn" onclick="openTab(event, 'dataSummary')">Data Summary</button>
         </div>
 
         <div id="import" class="tab-content" style="display: block;">
@@ -411,7 +439,7 @@ $visa_types = getAllVisaTypes($conn);
             </section>
         </div>
 
-        <div id="manage" class="tab-content" style="display: none;">
+        <div id="manageVisaTypes" class="tab-content">
             <section class="admin-section">
                 <h2>4. Manage Visa Types</h2>
                 <div class="visa-types-container">
@@ -454,7 +482,7 @@ $visa_types = getAllVisaTypes($conn);
             </section>
         </div>
 
-        <div id="settings" class="tab-content" style="display: none;">
+        <div id="dataManagement" class="tab-content" style="display: none;">
             <section class="admin-section">
                 <h2>5. Data Management</h2>
                 <div class="warning-box">
@@ -477,7 +505,7 @@ $visa_types = getAllVisaTypes($conn);
         </section>
         </div>
 
-        <div id="summary" class="tab-content" style="display: none;">
+        <div id="dataSummary" class="tab-content" style="display: none;">
             <section class="admin-section">
                 <h2>Data Summary</h2>
                 

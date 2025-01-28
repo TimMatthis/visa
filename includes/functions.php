@@ -1253,10 +1253,11 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
         $row = mysqli_fetch_assoc($result);
         
         if ($row) {
+            $breakdown = $row['breakdown'] ? json_decode($row['breakdown'], true) : [];
             return [
                 'total_ahead' => intval($row['total_ahead']),
                 'latest_update' => $latest_update,
-                'breakdown' => json_decode($row['breakdown'], true),
+                'breakdown' => $breakdown,
                 'lodgement_date' => $lodgement_date
             ];
         }
@@ -1577,6 +1578,9 @@ function getAllocationsRemaining($visa_type_id) {
         error_log("Allocations calculation: Total={$total_allocation}, Processed={$total_processed}, Remaining={$remaining}");
         error_log("Monthly processing breakdown: " . $processed['monthly_breakdown']);
         
+        $monthly_breakdown = $processed['monthly_breakdown'] ?? '';
+        $breakdown_array = !empty($monthly_breakdown) ? explode('; ', $monthly_breakdown) : [];
+
         return [
             'total_allocation' => $total_allocation,
             'total_processed' => $total_processed,
@@ -1584,7 +1588,7 @@ function getAllocationsRemaining($visa_type_id) {
             'financial_year' => $fy_dates['fy_label'],
             'percentage_used' => $total_allocation > 0 ? 
                 round(($total_processed / $total_allocation) * 100, 1) : 0,
-            'monthly_breakdown' => explode('; ', $processed['monthly_breakdown'])
+            'monthly_breakdown' => $breakdown_array
         ];
         
     } catch (Exception $e) {
@@ -1645,6 +1649,10 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         
         // Calculate non-priority processing rate
         $non_priority_rate = $weighted_average * $non_priority_ratio;
+        
+        if ($non_priority_rate <= 0) {
+            return ['error' => 'Non-priority processing rate is zero or negative'];
+        }
         
         // Calculate cases for different percentiles
         $total_cases = $cases_ahead['total_ahead'];
@@ -1720,6 +1728,35 @@ function getCurrentFinancialYearDates() {
         'fy_start_year' => $fy_start_year,
         'fy_label' => sprintf('FY%d-%d', $fy_start_year, ($fy_start_year + 1) % 100)
     ];
+}
+
+/**
+ * Get Oldest Lodgement Date
+ * 
+ * @description Retrieves the oldest lodged_month for a given visa type
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @return array Oldest lodged_month details
+ */
+function getOldestLodgementDate($visa_type_id) {
+    global $conn;
+
+    try {
+        $query = "SELECT MIN(lodged_month) as oldest_date FROM visa_lodgements WHERE visa_type_id = ?";
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+
+        if ($row && $row['oldest_date']) {
+            return ['oldest_date' => $row['oldest_date']];
+        } else {
+            return ['error' => 'No data found'];
+        }
+    } catch (Exception $e) {
+        error_log("Error in getOldestLodgementDate: " . $e->getMessage());
+        return ['error' => 'Internal server error'];
+    }
 }
 
 // Continue with other core functions...

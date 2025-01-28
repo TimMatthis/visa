@@ -1,0 +1,110 @@
+[28-Jan-2025 08:34:16 UTC] Session ID at start: 59a56ffa2fc5f80f1651c10235b32157
+[28-Jan-2025 08:34:16 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 559
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "last_three_months_average" in C:\www\visaqueue\admin.php on line 559
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "yearly_total" in C:\www\visaqueue\admin.php on line 566
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 566
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "yearly_average" in C:\www\visaqueue\admin.php on line 572
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 572
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "last_three_months_average" in C:\www\visaqueue\admin.php on line 578
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 578
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "annual_allocation" in C:\www\visaqueue\admin.php on line 584
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 584
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "priority_processed" in C:\www\visaqueue\admin.php on line 591
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 591
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "priority_percentage" in C:\www\visaqueue\admin.php on line 592
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "remaining_quota" in C:\www\visaqueue\admin.php on line 599
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 599
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 607
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 608
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 608
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "previous_month" in C:\www\visaqueue\admin.php on line 619
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 619
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "current_month" in C:\www\visaqueue\admin.php on line 620
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 620
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "previous_month" in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "current_month" in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 635
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Undefined array key "ytd_average" in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 635
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 635
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:16 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:16 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:22 UTC] Session ID at start: 59a56ffa2fc5f80f1651c10235b32157
+[28-Jan-2025 08:34:22 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 559
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "last_three_months_average" in C:\www\visaqueue\admin.php on line 559
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "yearly_total" in C:\www\visaqueue\admin.php on line 566
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 566
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "yearly_average" in C:\www\visaqueue\admin.php on line 572
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 572
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "last_three_months_average" in C:\www\visaqueue\admin.php on line 578
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 578
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "annual_allocation" in C:\www\visaqueue\admin.php on line 584
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 584
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "priority_processed" in C:\www\visaqueue\admin.php on line 591
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 591
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "priority_percentage" in C:\www\visaqueue\admin.php on line 592
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "remaining_quota" in C:\www\visaqueue\admin.php on line 599
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  number_format(): Passing null to parameter #1 ($num) of type float is deprecated in C:\www\visaqueue\admin.php on line 599
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 607
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 608
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 608
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "previous_month" in C:\www\visaqueue\admin.php on line 619
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 619
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "current_month" in C:\www\visaqueue\admin.php on line 620
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 620
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "previous_month" in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "current_month" in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 635
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "visas_processed" in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Undefined array key "ytd_average" in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 635
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on false in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 628
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\www\visaqueue\admin.php on line 629
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 635
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 636
+[28-Jan-2025 08:34:22 UTC] PHP Warning:  Trying to access array offset on float in C:\www\visaqueue\admin.php on line 642
+[28-Jan-2025 08:34:22 UTC] PHP Deprecated:  abs(): Passing null to parameter #1 ($num) of type int|float is deprecated in C:\www\visaqueue\admin.php on line 642
