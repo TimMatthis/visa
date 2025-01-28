@@ -373,38 +373,42 @@ function addVisaType($visa_type) {
  * @return array Status and message
  * @location Admin Panel > Manage Visa Types tab > Delete
  */
-function deleteVisaType($id) {
-    global $pdo;
+function deleteVisaType($id, $conn) {
     try {
-        $pdo->beginTransaction();
+        // Start transaction
+        mysqli_begin_transaction($conn);
 
         // First delete related records from visa_allocations
-        $stmt = $pdo->prepare("DELETE FROM visa_allocations WHERE visa_type_id = ?");
-        $stmt->execute([$id]);
+        $stmt = mysqli_prepare($conn, "DELETE FROM visa_allocations WHERE visa_type_id = ?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
 
         // Then delete related records from visa_queue_updates and visa_lodgements
-        $stmt = $pdo->prepare("
+        $stmt = mysqli_prepare($conn, "
             DELETE qu FROM visa_queue_updates qu
             INNER JOIN visa_lodgements l ON qu.lodged_month_id = l.id
             WHERE l.visa_type_id = ?
         ");
-        $stmt->execute([$id]);
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
 
-        $stmt = $pdo->prepare("DELETE FROM visa_lodgements WHERE visa_type_id = ?");
-        $stmt->execute([$id]);
+        $stmt = mysqli_prepare($conn, "DELETE FROM visa_lodgements WHERE visa_type_id = ?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
 
         // Finally delete the visa type
-        $stmt = $pdo->prepare("DELETE FROM visa_types WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt = mysqli_prepare($conn, "DELETE FROM visa_types WHERE id = ?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
 
-        $pdo->commit();
+        mysqli_commit($conn);
         return [
             'status' => 'success',
             'message' => "Visa type and all related data deleted successfully"
         ];
 
-    } catch (PDOException $e) {
-        $pdo->rollBack();
+    } catch (Exception $e) {
+        mysqli_rollback($conn);
         error_log("Error deleting visa type: " . $e->getMessage());
         return [
             'status' => 'error',
@@ -1294,7 +1298,7 @@ function getTotalProcessedToDate($visa_type_id) {
             'first_update' => null,  // These aren't needed since we're using the allocations data
             'latest_update' => null,
             'financial_year' => $allocations['financial_year'],
-            'monthly_breakdown' => $allocations['monthly_breakdown']
+            'monthly_breakdown' => safeExplode('; ', $allocations['monthly_breakdown'])
         ];
         
     } catch (Exception $e) {
@@ -1376,7 +1380,7 @@ function getPriorityCases($visa_type_id, $lodgement_date) {
         
         return [
             'total_priority' => intval($processed['total_priority']),
-            'monthly_breakdown' => explode('; ', $processed['monthly_breakdown']),
+            'monthly_breakdown' => safeExplode('; ', $processed['monthly_breakdown']),
             'financial_year' => $fy_dates['fy_label'],
             'reference_date' => $lodgement_date
         ];
@@ -1578,8 +1582,23 @@ function getAllocationsRemaining($visa_type_id) {
         error_log("Allocations calculation: Total={$total_allocation}, Processed={$total_processed}, Remaining={$remaining}");
         error_log("Monthly processing breakdown: " . $processed['monthly_breakdown']);
         
+        // Add type checking and debug logging
         $monthly_breakdown = $processed['monthly_breakdown'] ?? '';
-        $breakdown_array = !empty($monthly_breakdown) ? explode('; ', $monthly_breakdown) : [];
+        error_log("Monthly breakdown type: " . gettype($monthly_breakdown));
+        error_log("Monthly breakdown value: " . var_export($monthly_breakdown, true));
+        
+        $breakdown_array = [];
+        if (is_string($monthly_breakdown) && strlen(trim($monthly_breakdown)) > 0) {
+            try {
+                $breakdown_array = safeExplode('; ', $monthly_breakdown);
+                error_log("Successfully split breakdown into " . count($breakdown_array) . " parts");
+            } catch (Exception $e) {
+                error_log("Error splitting breakdown: " . $e->getMessage());
+                $breakdown_array = [];
+            }
+        } else {
+            error_log("Monthly breakdown was not a valid string");
+        }
 
         return [
             'total_allocation' => $total_allocation,
@@ -1733,15 +1752,20 @@ function getCurrentFinancialYearDates() {
 /**
  * Get Oldest Lodgement Date
  * 
- * @description Retrieves the oldest lodged_month for a given visa type
- * @param int $visa_type_id The ID of the visa type to analyze
+ * @description Retrieves the oldest lodged_month for a given visa type ID
+ * @param int $visa_type_id The ID of the visa type
  * @return array Oldest lodged_month details
  */
 function getOldestLodgementDate($visa_type_id) {
     global $conn;
 
     try {
-        $query = "SELECT MIN(lodged_month) as oldest_date FROM visa_lodgements WHERE visa_type_id = ?";
+        $query = "
+            SELECT MIN(lodged_month) as oldest_date
+            FROM visa_lodgements
+            WHERE visa_type_id = ?
+        ";
+        
         $stmt = mysqli_prepare($conn, $query);
         mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
         mysqli_stmt_execute($stmt);
@@ -1749,14 +1773,26 @@ function getOldestLodgementDate($visa_type_id) {
         $row = mysqli_fetch_assoc($result);
 
         if ($row && $row['oldest_date']) {
+            error_log("Found oldest date for visa type ID $visa_type_id: " . $row['oldest_date']);
             return ['oldest_date' => $row['oldest_date']];
         } else {
+            error_log("No lodgement dates found for visa type ID $visa_type_id");
             return ['error' => 'No data found'];
         }
     } catch (Exception $e) {
         error_log("Error in getOldestLodgementDate: " . $e->getMessage());
         return ['error' => 'Internal server error'];
     }
+}
+
+// Add this helper function at the top of functions.php
+function safeExplode($delimiter, $string) {
+    if (!is_string($string)) {
+        error_log("Attempted to explode non-string value: " . var_export($string, true));
+        error_log("Called from: " . debug_backtrace()[0]['file'] . ":" . debug_backtrace()[0]['line']);
+        return [];
+    }
+    return explode($delimiter, $string);
 }
 
 // Continue with other core functions...

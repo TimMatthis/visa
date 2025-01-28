@@ -14,6 +14,14 @@ if (!isset($conn)) {
 // Debug visa types
 $visaSubclasses = getVisaSelect($conn);
 error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
+
+// Get the earliest possible date for the selected visa type
+$earliest_date = getOldestLodgementDate($visaSubclasses[0]['code'] ?? null);
+$min_date = $earliest_date['oldest_date'] ?? date('Y-m-d', strtotime('-1 year'));
+$max_date = date('Y-m-d'); // Today
+
+// Add debug logging
+error_log("Date bounds - Min: $min_date, Max: $max_date");
 ?>
 
 <!DOCTYPE html>
@@ -22,27 +30,42 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="css/style.css">
-    <title>Visa Processing Timeline Predictor</title>
+    <title>Australia Visa Timeline Calculator - When Am I Going</title>
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-7BJ2GHZFM8"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-7BJ2GHZFM8');
+    </script>
 </head>
+
 <body>
+    <!-- Add site name banner -->
+    <div class="site-banner">
+        <div class="site-banner-content">
+            <a href="/" class="site-name">www.WhenAmIGoing.com</a>
+        </div>
+    </div>
+
     <header class="header-container">
         <div class="header-slider">
-            <div class="header-slide" style="background-image: url('https://images.unsplash.com/photo-1524820197278-540916411e20?auto=format&fit=crop&q=80')"></div>
-            <div class="header-slide" style="background-image: url('https://images.unsplash.com/photo-1548296404-93c7694b2f91?auto=format&fit=crop&q=80')"></div>
-            <div class="header-slide" style="background-image: url('https://images.unsplash.com/photo-1614787635162-d96af1980854?auto=format&fit=crop&q=80')"></div>
+            <div class="header-slide" style="background-image: url('images/uluru.jpg')"></div>
+            <div class="header-slide" style="background-image: url('images/oceanroad.jpg')"></div>
+            <div class="header-slide" style="background-image: url('images/operahouse.jpg')"></div>
         </div>
         <div class="header-content">
-            <h1 class="header-title">Built by an Applicant, for Applicants</h1>
-            <p class="header-subtitle">We understand the frustration of ever-changing predictions. Our aim is to make ours accurate, realistic, and trustworthy.</p>
+            <div class="header-text-container">
+                <h1 class="header-title">Australia Visa Timeline Calculator</h1>
+                <p class="header-subtitle">Built by an Applicant, for Applicants. We understand the frustration of ever-changing predictions. Our aim is to make ours accurate, realistic, and trustworthy.</p>
+            </div>
         </div>
     </header>
 
     <main class="container">
-        <nav class="nav-header">
-            <div class="nav-container">
-                <a href="admin.php" class="admin-link">Admin Dashboard</a>
-            </div>
-        </nav>
         <h1>Visa Processing Timeline Predictor</h1>
 
         <!-- Add tab buttons -->
@@ -61,7 +84,6 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
                     <select id="visaType" name="visaType" required>
                         <option value="">Select a visa type</option>
                         <?php
-                        $visaSubclasses = getVisaSelect($conn);
                         if (empty($visaSubclasses)) {
                             error_log("No visa subclasses returned from getVisaSelect(). Connection status: " . ($conn ? "Connected" : "Not connected"));
                             echo "<option value=''>Error loading visa types</option>";
@@ -79,41 +101,19 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
                         <div class="date-input">
                             <label for="applicationYear">Year:</label>
                             <select id="applicationYear" name="applicationYear" required>
-                                <?php
-                                $currentYear = date('Y');
-                                for ($year = $currentYear; $year >= 2020; $year--) {
-                                    $selected = ($year == 2023) ? 'selected' : '';
-                                    echo "<option value='$year' $selected>$year</option>";
-                                }
-                                ?>
+                                <!-- Options will be populated by JavaScript -->
                             </select>
                         </div>
                         <div class="date-input">
                             <label for="applicationMonth">Month:</label>
                             <select id="applicationMonth" name="applicationMonth" required>
-                                <?php
-                                $months = [
-                                    1 => 'January', 2 => 'February', 3 => 'March',
-                                    4 => 'April', 5 => 'May', 6 => 'June',
-                                    7 => 'July', 8 => 'August', 9 => 'September',
-                                    10 => 'October', 11 => 'November', 12 => 'December'
-                                ];
-                                foreach ($months as $num => $name) {
-                                    $selected = ($num == 7) ? 'selected' : '';
-                                    echo "<option value='$num' $selected>$name</option>";
-                                }
-                                ?>
+                                <!-- Options will be populated by JavaScript -->
                             </select>
                         </div>
                         <div class="date-input">
                             <label for="applicationDay">Day:</label>
                             <select id="applicationDay" name="applicationDay" required>
-                                <?php
-                                for ($day = 1; $day <= 31; $day++) {
-                                    $selected = ($day == 10) ? 'selected' : '';
-                                    echo "<option value='$day' $selected>$day</option>";
-                                }
-                                ?>
+                                <!-- Options will be populated by JavaScript -->
                             </select>
                         </div>
                     </div>
@@ -159,57 +159,109 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
     <script>
-        // Update days in month when month or year changes
-        function updateDays(minDate = null, maxDate = null) {
-            const year = parseInt(document.getElementById('applicationYear').value);
-            const month = parseInt(document.getElementById('applicationMonth').value);
+        // Add these at the start of your script
+        const maxDate = new Date('<?php echo $max_date; ?>');
+        const minDate = new Date('<?php echo $min_date; ?>');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize date picker with bounds
+            initializeDatePicker(minDate, maxDate);
+            
+            // Set initial values to the middle of the range
+            const midDate = new Date((minDate.getTime() + maxDate.getTime()) / 2);
+            document.getElementById('applicationYear').value = midDate.getFullYear();
+            document.getElementById('applicationMonth').value = midDate.getMonth() + 1;
+            updateMonthOptions(minDate, maxDate);
+            updateDayOptions(minDate, maxDate);
+            document.getElementById('applicationDay').value = midDate.getDate();
+            
+            // Add visa type change handler
+            document.getElementById('visaType').addEventListener('change', function() {
+                updateDateBounds(this.value);
+            });
+        });
+
+        function updateDateBounds(visaTypeId) {
+            // Fetch new bounds when visa type changes
+            fetch('get_date_bounds.php?visa_type=' + visaTypeId)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.error) {
+                        const newMinDate = new Date(data.min_date);
+                        initializeDatePicker(newMinDate, maxDate);
+                    }
+                });
+        }
+
+        function initializeDatePicker(minDate, maxDate) {
+            const yearSelect = document.getElementById('applicationYear');
+            const monthSelect = document.getElementById('applicationMonth');
             const daySelect = document.getElementById('applicationDay');
             
-            // Get current selections before updating
-            const currentSelection = daySelect.value;
+            // Update year options
+            yearSelect.innerHTML = '';
+            for (let year = minDate.getFullYear(); year <= maxDate.getFullYear(); year++) {
+                const option = document.createElement('option');
+                option.value = year;
+                option.text = year;
+                yearSelect.appendChild(option);
+            }
+
+            // Set initial month options
+            updateMonthOptions(minDate, maxDate);
+
+            // Add event listeners
+            yearSelect.addEventListener('change', function() {
+                updateMonthOptions(minDate, maxDate);
+            });
+            monthSelect.addEventListener('change', function() {
+                updateDayOptions(minDate, maxDate);
+            });
+        }
+
+        function updateMonthOptions(minDate, maxDate) {
+            const yearSelect = document.getElementById('applicationYear');
+            const monthSelect = document.getElementById('applicationMonth');
+            const selectedYear = parseInt(yearSelect.value);
             
-            const daysInMonth = new Date(year, month, 0).getDate();
+            monthSelect.innerHTML = '';
+            const startMonth = selectedYear === minDate.getFullYear() ? minDate.getMonth() : 0;
+            const endMonth = selectedYear === maxDate.getFullYear() ? maxDate.getMonth() : 11;
+            
+            for (let month = startMonth; month <= endMonth; month++) {
+                const option = document.createElement('option');
+                option.value = month + 1;
+                option.text = new Date(2000, month).toLocaleString('default', { month: 'long' });
+                monthSelect.appendChild(option);
+            }
+            
+            updateDayOptions(minDate, maxDate);
+        }
+
+        function updateDayOptions(minDate, maxDate) {
+            const yearSelect = document.getElementById('applicationYear');
+            const monthSelect = document.getElementById('applicationMonth');
+            const daySelect = document.getElementById('applicationDay');
+            const selectedYear = parseInt(yearSelect.value);
+            const selectedMonth = parseInt(monthSelect.value) - 1;
+            
+            const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
             let startDay = 1;
             let endDay = daysInMonth;
-
-            // If we have a minDate and we're in the minimum month/year, enforce minimum day
-            if (minDate && year === minDate.getFullYear() && month === (minDate.getMonth() + 1)) {
+            
+            if (selectedYear === minDate.getFullYear() && selectedMonth === minDate.getMonth()) {
                 startDay = minDate.getDate();
             }
-
-            // If we have a maxDate and we're in the maximum month/year, enforce maximum day
-            if (maxDate && year === maxDate.getFullYear() && month === (maxDate.getMonth() + 1)) {
+            if (selectedYear === maxDate.getFullYear() && selectedMonth === maxDate.getMonth()) {
                 endDay = maxDate.getDate();
             }
-
-            // Clear and repopulate days
+            
             daySelect.innerHTML = '';
             for (let day = startDay; day <= endDay; day++) {
                 const option = document.createElement('option');
                 option.value = day;
                 option.text = day;
-                
-                // If this day matches the current selection and it's within valid range, select it
-                if (day === parseInt(currentSelection) && day >= startDay && day <= endDay) {
-                    option.selected = true;
-                }
                 daySelect.appendChild(option);
-            }
-
-            // If no day is selected, select the first available day
-            if (!daySelect.value) {
-                daySelect.value = startDay;
-            }
-
-            // Validate the selected date is within bounds
-            const selectedDate = new Date(year, month - 1, daySelect.value);
-            if (minDate && selectedDate < minDate) {
-                // If selected date is before minDate, set to minDate
-                daySelect.value = minDate.getDate();
-            }
-            if (maxDate && selectedDate > maxDate) {
-                // If selected date is after maxDate, set to maxDate
-                daySelect.value = maxDate.getDate();
             }
         }
 
@@ -298,14 +350,6 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
             return false;
         }
 
-        // Add event listener for visa type change
-        document.getElementById('visaType').addEventListener('change', function() {
-            const visaType = this.value;
-            if (visaType) {
-                fetchOldestLodgementDate(visaType);
-            }
-        });
-
         // Function to trigger confetti
         function celebrateVisa() {
             const canvas = document.getElementById('confetti-canvas');
@@ -354,95 +398,6 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
             }
         });
 
-        // Fetch the oldest lodgement date from the server
-        function fetchOldestLodgementDate(visaType) {
-            fetch('api/get_oldest_lodgement_date.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: new URLSearchParams({ 'visaType': visaType })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.oldest_date) {
-                    const oldestDate = new Date(data.oldest_date);
-                    const today = new Date();
-                    updateDatePickerLimits(oldestDate, today);
-                } else {
-                    console.error('Error fetching oldest date:', data.error);
-                }
-            })
-            .catch(error => console.error('Error:', error));
-        }
-
-        // Update the date picker limits based on oldest date and today
-        function updateDatePickerLimits(minDate, maxDate) {
-            const yearSelect = document.getElementById('applicationYear');
-            const monthSelect = document.getElementById('applicationMonth');
-            
-            // Update year options
-            yearSelect.innerHTML = '';
-            for (let year = minDate.getFullYear(); year <= maxDate.getFullYear(); year++) {
-                const option = document.createElement('option');
-                option.value = year;
-                option.text = year;
-                if (year === maxDate.getFullYear()) {
-                    option.selected = true;
-                }
-                yearSelect.appendChild(option);
-            }
-
-            // Update month options
-            updateMonthOptions(minDate, maxDate);
-
-            // Add event listeners for year and month changes
-            yearSelect.addEventListener('change', function() {
-                updateMonthOptions(minDate, maxDate);
-            });
-            monthSelect.addEventListener('change', function() {
-                updateDays(minDate, maxDate);
-            });
-
-            // Initial update of days
-            updateDays(minDate, maxDate);
-        }
-
-        // Update month options based on selected year
-        function updateMonthOptions(minDate, maxDate) {
-            const yearSelect = document.getElementById('applicationYear');
-            const monthSelect = document.getElementById('applicationMonth');
-            const selectedYear = parseInt(yearSelect.value);
-            
-            const months = [
-                'January', 'February', 'March', 'April', 'May', 'June',
-                'July', 'August', 'September', 'October', 'November', 'December'
-            ];
-
-            let startMonth = 0;
-            let endMonth = 11;
-
-            if (selectedYear === minDate.getFullYear()) {
-                startMonth = minDate.getMonth();
-            }
-            if (selectedYear === maxDate.getFullYear()) {
-                endMonth = maxDate.getMonth();
-            }
-
-            monthSelect.innerHTML = '';
-            for (let i = startMonth; i <= endMonth; i++) {
-                const option = document.createElement('option');
-                option.value = i + 1;
-                option.text = months[i];
-                if (i === endMonth) {
-                    option.selected = true;
-                }
-                monthSelect.appendChild(option);
-            }
-
-            updateDays(minDate, maxDate);
-        }
-
         // Add header slider functionality
         document.addEventListener('DOMContentLoaded', function() {
             const slides = document.querySelectorAll('.header-slide');
@@ -465,5 +420,17 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
             setInterval(nextSlide, 5000);
         });
     </script>
+
+    <!-- Add this before </body> -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="admin.php" class="admin-link">Admin Dashboard</a>
+            </div>
+            <div class="footer-attribution">
+                Designed by <a href="http://www.nextzero.co.za" target="_blank" rel="noopener noreferrer">BinaryBushbaby</a> © 2025
+            </div>
+        </div>
+    </footer>
 </body>
 </html>

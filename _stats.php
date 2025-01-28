@@ -15,7 +15,7 @@ if (!$visa_type_id) {
 
 // Get visa queue data
 $debug_data = debugVisaQueueSummary($visa_type_id);
-$result = getVisasOnHand($conn);
+$visas_on_hand = getVisasOnHand($debug_data['details']);
 
 // Get monthly processing data
 $monthly_processing = getProcessedByMonth($visa_type_id);
@@ -63,71 +63,16 @@ if ($application_date) {
 ?>
 <div class="stats-grid">
     <?php if (isset($prediction) && !isset($prediction['error'])): ?>
-        <?php
-        // Calculate months away first
-        $months_away = null;
-        $is_very_overdue = false;
-        if (!$prediction['next_fy']) {
-            $today = new DateTime();
-            $prediction_date = new DateTime($prediction['ninety_percent']);
-            $application_date = new DateTime($application_date);
-            $application_age = $today->diff($application_date);
-            
-            // Function to get humorous age message
-            function getAgeMessage($interval) {
-                $months = $interval->y * 12 + $interval->m;
-                
-                $messages = [
-                    3 => "That's enough time for a baby to learn to crawl! 👶",
-                    6 => "A baby would be sitting up by now! 🪑",
-                    9 => "Your application is as old as a pregnancy! 🤰",
-                    12 => "Happy birthday to your application! 🎂",
-                    18 => "Your application could be walking and talking by now! 🚶",
-                    24 => "You could've had two babies in this time! 👶👶",
-                    36 => "Your application is old enough for preschool! 🎒",
-                    48 => "Your application could be riding a bike by now! 🚲",
-                    60 => "Your application could be starting school! 📚"
-                ];
-                
-                // Find the closest milestone without going over
-                $milestone = 0;
-                foreach (array_keys($messages) as $month) {
-                    if ($months >= $month) {
-                        $milestone = $month;
-                    } else {
-                        break;
-                    }
-                }
-                
-                return $milestone > 0 ? $messages[$milestone] : null;
-            }
-            
-            $months_away = ($prediction_date->getTimestamp() - $today->getTimestamp()) / (30 * 24 * 60 * 60);
-            $days_away = ($prediction_date->getTimestamp() - $today->getTimestamp()) / (24 * 60 * 60);
-            $is_very_overdue = $days_away <= 1;
-            
-            error_log("Prediction details: " . 
-                "Next FY: " . ($prediction['next_fy'] ? 'Yes' : 'No') . ", " .
-                "Months Away: " . number_format($months_away, 1) . ", " .
-                "Days Away: " . number_format($days_away, 1) . ", " .
-                "Prediction Date: " . $prediction['ninety_percent'] . ", " .
-                "Cases Ahead: " . $prediction['cases_ahead'] . ", " .
-                "Places Remaining: " . $prediction['places_remaining'] . ", " .
-                "Message Type: " . (
-                    $prediction['next_fy'] ? 'Next FY Planning' : 
-                    ($is_very_overdue ? 'Overdue Alert' :
-                    ($months_away <= 3 ? 'Celebration' : 'On Track'))
-                )
-            );
-        }
+        <?php 
+        // Calculate months_away before using it
+        $months_away = !$prediction['next_fy'] ? 
+            (strtotime($prediction['ninety_percent']) - time()) / (30 * 24 * 60 * 60) : 
+            999; // Large number for next FY cases
         ?>
-        <div class="stat-card prediction-highlight <?php echo (!$prediction['next_fy'] && $months_away <= 3 && !$is_very_overdue) ? 'celebration-mode' : ''; ?>">
+        <div class="stat-card prediction-highlight <?php echo ($months_away <= 3) ? 'celebration-mode' : ''; ?>">
             <div class="stat-header">
                 <?php if (!$prediction['next_fy']): ?>
-                    <?php 
-                    if ($is_very_overdue): ?>
-                        <h3>⚠️ Application Status Alert</h3>
-                    <?php elseif ($months_away <= 3): ?>
+                    <?php if ($months_away <= 3): ?>
                         <h3>🎉 Get Ready for Australia! 🎉</h3>
                         <canvas id="confetti-canvas"></canvas>
                     <?php else: ?>
@@ -139,37 +84,7 @@ if ($application_date) {
             </div>
             <div class="stat-body">
                 <?php if (!$prediction['next_fy']): ?>
-                    <?php if ($is_very_overdue): ?>
-                        <div class="alert-message">
-                            <div class="stat-number">A Quick Check May Be Helpful</div>
-                            <?php
-                            $ageMessage = getAgeMessage($application_age);
-                            if ($ageMessage): ?>
-                                <div class="application-age">
-                                    <p>Your application is <?php echo $application_age->y; ?> years and <?php echo $application_age->m; ?> months old.</p>
-                                    <p class="age-message"><?php echo $ageMessage; ?></p>
-                                </div>
-                            <?php endif; ?>
-                            <div class="stat-label">
-                                We notice your application has been in process longer than typical.
-                                While this isn't necessarily a concern, it might be worth doing a gentle check-in.
-                            </div>
-                            <div class="action-steps">
-                                <h4>Suggested Next Steps:</h4>
-                                <p>📞 Contact Home Affairs to check your application status</p>
-                                <p>📋 Review your ImmiAccount for any requests or messages</p>
-                                <p>👥 Consult with your migration agent if you have one</p>
-                            </div>
-                            <div class="contact-info">
-                                <p>For Your Reference:</p>
-                                <a href="https://immi.homeaffairs.gov.au/help-support/contact-us" 
-                                   target="_blank" 
-                                   class="contact-link">
-                                    Visit Contact Page →
-                                </a>
-                            </div>
-                        </div>
-                    <?php elseif ($months_away <= 3): ?>
+                    <?php if ($months_away <= 3): ?>
                         <div class="celebration-message">
                             <div class="stat-number bounce-animation">Less than 3 months to go!</div>
                             <?php
@@ -263,11 +178,11 @@ if ($application_date) {
             <span class="stat-date">As of <?php echo date('j F Y', strtotime($debug_data['latest_update'])); ?></span>
         </div>
         <div class="stat-body">
-            <div class="stat-number"><?php echo number_format($result); ?></div>
+            <div class="stat-number"><?php echo number_format($visas_on_hand); ?></div>
             <div class="stat-label">Visas Currently in Queue</div>
         </div>
         <div class="stat-footer">
-            <div class="stat-note">Total applications being processed across all lodgement months. This is often referred to Visas on-and</div>
+            <div class="stat-note">Total applications being processed across all lodgement months</div>
         </div>
     </div>
 
@@ -399,25 +314,25 @@ if ($application_date) {
     <?php if (isset($priority_ratio) && !isset($priority_ratio['error'])): ?>
         <div class="stat-card priority-ratio">
             <div class="stat-header">
-                <h3>Processing Order Distribution</h3>
+                <h3>Priority Processing Ratio</h3>
                 <span class="stat-date"><?php echo $priority_ratio['financial_year']; ?></span>
             </div>
             <div class="stat-body">
                 <div class="stat-number"><?php echo number_format($priority_ratio['priority_percentage'], 1); ?>%</div>
-                <div class="stat-label">Cases Processed from Later Lodgements</div>
+                <div class="stat-label">Priority Processing Rate</div>
                 <div class="ratio-breakdown">
                     <div class="ratio-item">
                         <span class="count"><?php echo number_format($priority_ratio['priority_count']); ?></span>
-                        <span class="label">Later Lodgements</span>
+                        <span class="label">Priority</span>
                     </div>
                     <div class="ratio-item">
                         <span class="count"><?php echo number_format($priority_ratio['non_priority_count']); ?></span>
-                        <span class="label">Earlier Lodgements</span>
+                        <span class="label">Non-Priority</span>
                     </div>
                 </div>
             </div>
             <div class="stat-footer">
-                <div class="stat-note">Shows the distribution of processed cases: those lodged after your date (<?php echo date('j F Y', strtotime($priority_ratio['reference_date'])); ?>) vs. those lodged before</div>
+                <div class="stat-note">Percentage of visas processed this year with lodgement dates after <?php echo date('j F Y', strtotime($priority_ratio['reference_date'])); ?></div>
             </div>
         </div>
     <?php endif; ?>
@@ -492,11 +407,11 @@ if ($application_date) {
                     <h4>Calculation Details:</h4>
                     <div class="step-details">
                         <div class="step-item">
-                            <span class="label">Queue Shortening Rate:</span>
+                            <span class="label">Priority Rate:</span>
                             <span class="value"><?php echo number_format($prediction['steps']['priority_percentage'] * 100, 1); ?>%</span>
                         </div>
                         <div class="step-item">
-                            <span class="label">Queue Position Rate:</span>
+                            <span class="label">Non-Priority Rate:</span>
                             <span class="value"><?php echo number_format($prediction['steps']['non_priority_ratio'] * 100, 1); ?>%</span>
                         </div>
                         <?php if (!$prediction['next_fy']): ?>
@@ -505,7 +420,7 @@ if ($application_date) {
                                 <span class="value"><?php echo number_format($prediction['steps']['weighted_average']); ?> per month</span>
                             </div>
                             <div class="step-item">
-                                <span class="label">Processing Rate for Older Cases:</span>
+                                <span class="label">Non-Priority Processing Rate:</span>
                                 <span class="value"><?php echo number_format($prediction['steps']['non_priority_rate']); ?> per month</span>
                             </div>
                             <div class="step-item">
