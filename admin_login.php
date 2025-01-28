@@ -8,19 +8,24 @@
 </head>
 <body>
     <div class="container">
-        <section class="admin-login">
+        <div class="admin-login-form">
             <h1>Admin Login</h1>
             <?php if (isset($error)): ?>
-                <div class="message error"><?php echo $error; ?></div>
+                <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
-            <form action="" method="POST">
+            
+            <form method="POST" action="admin.php">
                 <div class="form-group">
                     <label for="password">Password:</label>
-                    <input type="password" name="password" required>
+                    <input type="password" id="password" name="password" required>
                 </div>
                 <button type="submit">Login</button>
             </form>
-        </section>
+            
+            <div class="back-link">
+                <a href="index.php">← Back to Home</a>
+            </div>
+        </div>
     </div>
 </body>
 </html> 
