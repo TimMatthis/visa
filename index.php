@@ -22,38 +22,68 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="css/style.css">
-    <title>Visa Processing Timeline Predictor</title>
+    <title>When Am I Going? - Australian Visa Timeline Predictor</title>
 </head>
 <body>
-    <div class="container">
+    <div class="hero-section">
+        <div class="hero-overlay"></div>
         <nav class="nav-header">
             <div class="nav-container">
+                <div class="logo">WhenAmIGoing.com</div>
                 <a href="admin.php" class="admin-link">Admin Dashboard</a>
             </div>
         </nav>
-        <h1>Visa Processing Timeline Predictor</h1>
+        <div class="hero-content">
+            <h1>Track Your Australian Visa Journey</h1>
+            <p class="hero-subtitle">Get personalized timeline predictions based on real processing data</p>
+        </div>
+    </div>
 
-        <!-- Add tab buttons -->
+    <div class="container">
+        <!-- Feature Cards -->
+        <div class="feature-cards">
+            <div class="feature-card">
+                <div class="card-icon">📊</div>
+                <h3>Track Your Progress</h3>
+                <p>Monitor your visa application's position in the queue with real-time data analysis</p>
+            </div>
+            <div class="feature-card">
+                <div class="card-icon">🎯</div>
+                <h3>Accurate Predictions</h3>
+                <p>Get data-driven estimates based on current processing patterns</p>
+            </div>
+            <div class="feature-card">
+                <div class="card-icon">📅</div>
+                <h3>Plan With Confidence</h3>
+                <p>Make informed decisions with our timeline forecasting tools</p>
+            </div>
+            <div class="feature-card">
+                <div class="card-icon">⚡</div>
+                <h3>Real-Time Updates</h3>
+                <p>Stay informed with the latest visa processing trends</p>
+            </div>
+        </div>
+
+        <!-- Main Content -->
         <div class="main-tabs">
-            <button class="main-tab-btn active" onclick="openTab('predictor')">Predictor</button>
-            <button class="main-tab-btn" onclick="openTab('stats')">Stats</button>
+            <button class="main-tab-btn active" onclick="openTab('predictor')">Timeline Predictor</button>
+            <button class="main-tab-btn" onclick="openTab('stats')">Processing Stats</button>
         </div>
 
         <!-- Predictor Tab -->
         <div id="predictor" class="main-tab-content active">
-            <p>Welcome to the Visa Processing Timeline Predictor for non-priority Australian visa applicants. Please select your visa type and the date you applied to get an estimated processing timeline.</p>
+            <div class="welcome-message">
+                <h2>Your Visa Journey Companion</h2>
+                <p>We understand waiting for your visa can be challenging. Let us help you track your progress and estimate your timeline with our data-driven predictions.</p>
+            </div>
             
             <form id="predictionForm" onsubmit="return submitPrediction(event)" class="predictions-section">
                 <div class="form-group">
-                    <label for="visaType">Select Visa Type:</label>
+                    <label for="visaType">Select Your Visa Subclass:</label>
                     <select id="visaType" name="visaType" required>
-                        <option value="">Select a visa type</option>
+                        <option value="">Choose your visa type</option>
                         <?php
                         $visaSubclasses = getVisaSelect($conn);
-                        if (empty($visaSubclasses)) {
-                            error_log("No visa subclasses returned from getVisaSelect(). Connection status: " . ($conn ? "Connected" : "Not connected"));
-                            echo "<option value=''>Error loading visa types</option>";
-                        }
                         foreach ($visaSubclasses as $subclass) {
                             echo "<option value='{$subclass['code']}'>{$subclass['name']}</option>";
                         }
@@ -62,7 +92,7 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
                 </div>
 
                 <div class="form-group date-picker-group">
-                    <label>Application Date:</label>
+                    <label>When did you lodge your application?</label>
                     <div class="date-inputs">
                         <div class="date-input">
                             <label for="applicationYear">Year:</label>
@@ -107,7 +137,7 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
                     </div>
                 </div>
 
-                <button type="submit">Calculate</button>
+                <button type="submit" class="predict-button">Calculate Your Timeline</button>
             </form>
         </div>
 
@@ -124,6 +154,26 @@ error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
             <div id="statsContent"></div>
         </div>
     </div>
+
+    <footer class="site-footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>About WhenAmIGoing.com</h4>
+                <p>Helping visa applicants track and predict their Australian visa journey through data-driven insights.</p>
+            </div>
+            <div class="footer-section">
+                <h4>Important Notice</h4>
+                <p>This tool provides estimates based on historical data. Processing times may vary. Not affiliated with the Department of Home Affairs.</p>
+            </div>
+            <div class="footer-section">
+                <h4>Contact Us</h4>
+                <p>Questions or feedback? Reach out to us at contact@whenamIgoing.com</p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2024 WhenAmIGoing.com - All rights reserved</p>
+        </div>
+    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
     <script>
