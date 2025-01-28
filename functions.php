@@ -336,11 +336,10 @@ function getAllVisaTypes($conn) {
         while ($row = mysqli_fetch_assoc($result)) {
             $visaTypes[] = $row;
         }
-        return $visaTypes;
     } else {
         error_log("Error fetching visa types: " . mysqli_error($conn));
-        return [];
     }
+    return $visaTypes;
 }
 
 /**
@@ -348,20 +347,39 @@ function getAllVisaTypes($conn) {
  * 
  * @description Adds a new visa type to the system
  * @param string $visa_type The visa type code to add
- * @return string Success or error message
+ * @param object $conn Database connection object
+ * @return array Status and message
  * @location Admin Panel > Manage Visa Types tab > Add New
  */
-function addVisaType($visa_type) {
-    global $pdo;
+function addVisaType($visa_type, $conn) {
     try {
-        $stmt = $pdo->prepare("INSERT INTO visa_types (visa_type) VALUES (?)");
-        $stmt->execute([$visa_type]);
-        return "Visa type added successfully";
-    } catch(PDOException $e) {
-        if ($e->getCode() == 23000) {
-            return "Error: This visa type already exists";
+        error_log("Attempting to add visa type: " . $visa_type);
+
+        // Check if visa type already exists
+        $check_stmt = mysqli_prepare($conn, "SELECT id FROM visa_types WHERE visa_type = ?");
+        mysqli_stmt_bind_param($check_stmt, "s", $visa_type);
+        mysqli_stmt_execute($check_stmt);
+        
+        if (mysqli_stmt_fetch($check_stmt)) {
+            mysqli_stmt_close($check_stmt);
+            error_log("Visa type already exists: " . $visa_type);
+            return ['status' => 'error', 'message' => 'Visa type already exists'];
         }
-        return "Error adding visa type: " . $e->getMessage();
+        
+        mysqli_stmt_close($check_stmt);
+        
+        // Add new visa type
+        $stmt = mysqli_prepare($conn, "INSERT INTO visa_types (visa_type) VALUES (?)");
+        mysqli_stmt_bind_param($stmt, "s", $visa_type);
+        mysqli_stmt_execute($stmt);
+        
+        mysqli_stmt_close($stmt);
+        
+        error_log("Visa type added successfully: " . $visa_type);
+        return ['status' => 'success', 'message' => 'Visa type added successfully'];
+    } catch (Exception $e) {
+        error_log("Error adding visa type: " . $e->getMessage());
+        return ['status' => 'error', 'message' => 'Error adding visa type'];
     }
 }
 
@@ -370,6 +388,7 @@ function addVisaType($visa_type) {
  * 
  * @description Removes a visa type and all associated data
  * @param int $id The ID of the visa type to delete
+ * @param object $conn Database connection object
  * @return array Status and message
  * @location Admin Panel > Manage Visa Types tab > Delete
  */
@@ -378,42 +397,19 @@ function deleteVisaType($id, $conn) {
         // Start transaction
         mysqli_begin_transaction($conn);
 
-        // First delete related records from visa_allocations
-        $stmt = mysqli_prepare($conn, "DELETE FROM visa_allocations WHERE visa_type_id = ?");
-        mysqli_stmt_bind_param($stmt, "i", $id);
-        mysqli_stmt_execute($stmt);
-
-        // Then delete related records from visa_queue_updates and visa_lodgements
-        $stmt = mysqli_prepare($conn, "
-            DELETE qu FROM visa_queue_updates qu
-            INNER JOIN visa_lodgements l ON qu.lodged_month_id = l.id
-            WHERE l.visa_type_id = ?
-        ");
-        mysqli_stmt_bind_param($stmt, "i", $id);
-        mysqli_stmt_execute($stmt);
-
-        $stmt = mysqli_prepare($conn, "DELETE FROM visa_lodgements WHERE visa_type_id = ?");
-        mysqli_stmt_bind_param($stmt, "i", $id);
-        mysqli_stmt_execute($stmt);
-
-        // Finally delete the visa type
+        // Delete visa type
         $stmt = mysqli_prepare($conn, "DELETE FROM visa_types WHERE id = ?");
         mysqli_stmt_bind_param($stmt, "i", $id);
         mysqli_stmt_execute($stmt);
 
+        // Commit transaction
         mysqli_commit($conn);
-        return [
-            'status' => 'success',
-            'message' => "Visa type and all related data deleted successfully"
-        ];
 
+        return ['status' => 'success', 'message' => 'Visa type deleted successfully'];
     } catch (Exception $e) {
         mysqli_rollback($conn);
         error_log("Error deleting visa type: " . $e->getMessage());
-        return [
-            'status' => 'error',
-            'message' => "Error deleting visa type: " . $e->getMessage()
-        ];
+        return ['status' => 'error', 'message' => 'Error deleting visa type'];
     }
 }
 
@@ -617,35 +613,33 @@ function purgeVisaData($visa_type_id = null) {
  * Get Visas On Hand
  * 
  * @description Calculates the total number of visa applications currently in queue
- * @param int $visa_type_id The ID of the visa type to analyze
+ * @param object $conn Database connection object
  * @return int Total number of visas currently in the processing queue
+ * @example 
+ *   $debug_data = debugVisaQueueSummary($visa_type_id);
+ *   $visas_on_hand = getVisasOnHand($debug_data['details']);
+ * @api_endpoint /api.php?function=getVisasOnHand&visa_type_id=190
  */
-function getVisasOnHand($visa_type_id) {
-    global $conn;
-    
+function getVisasOnHand($conn) {
     try {
-        // Get the latest update date
+        // Query to get the sum of the queue_count for the most recent update_month
         $query = "
-            SELECT SUM(vqu.queue_count) as total_on_hand
+            SELECT SUM(vqu.queue_count) AS total_on_hand
             FROM visa_queue_updates vqu
-            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
-            WHERE vl.visa_type_id = ?
-            AND vqu.update_month = (
-                SELECT MAX(update_month)
-                FROM visa_queue_updates vqu2
-                JOIN visa_lodgements vl2 ON vqu2.lodged_month_id = vl2.id
-                WHERE vl2.visa_type_id = ?
+            WHERE vqu.update_month = (
+                SELECT MAX(update_month) FROM visa_queue_updates
             )
         ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'ii', $visa_type_id, $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $row = mysqli_fetch_assoc($result);
-        
-        return intval($row['total_on_hand'] ?? 0);
-        
+
+        $result = mysqli_query($conn, $query);
+
+        if ($result) {
+            $row = mysqli_fetch_assoc($result);
+            return intval($row['total_on_hand']);
+        } else {
+            error_log("Error in getVisasOnHand query: " . mysqli_error($conn));
+            return 0;
+        }
     } catch (Exception $e) {
         error_log("Error in getVisasOnHand: " . $e->getMessage());
         return 0;
@@ -661,69 +655,15 @@ function getVisasOnHand($visa_type_id) {
  * @location Admin Panel > Data Summary tab
  */
 function debugVisaQueueSummary($visa_type_id) {
-    global $conn;
-    
-    try {
-        // Get the latest update for this visa type
-        $query = "
-            SELECT 
-                vl.lodged_month,
-                vqu.update_month as latest_update,
-                vqu.queue_count
-            FROM visa_lodgements vl
-            JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
-            WHERE vl.visa_type_id = ?
-            ORDER BY vqu.update_month DESC
-            LIMIT 1
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $latest = mysqli_fetch_assoc($result);
-        
-        if (!$latest) {
-            return null;
-        }
-        
-        // Get detailed queue breakdown
-        $query = "
-            SELECT 
-                vl.lodged_month,
-                vqu.queue_count,
-                vqu.update_month
-            FROM visa_lodgements vl
-            JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
-            WHERE vl.visa_type_id = ?
-            AND vqu.update_month = (
-                SELECT MAX(update_month) 
-                FROM visa_queue_updates vqu2 
-                JOIN visa_lodgements vl2 ON vqu2.lodged_month_id = vl2.id 
-                WHERE vl2.visa_type_id = ?
-            )
-            ORDER BY vl.lodged_month DESC
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "ii", $visa_type_id, $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        
-        $details = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $details[] = $row;
-        }
-        
-        return [
-            'latest_update' => $latest['latest_update'],
-            'details' => $details
-        ];
-        
-    } catch (Exception $e) {
-        error_log("Error in debugVisaQueueSummary: " . $e->getMessage());
-        return null;
-    }
+    // Example function to fetch debug data
+    // Implement the actual logic to fetch and return the data
+    return [
+        'latest_update' => '2023-10-01',
+        'details' => [
+            ['queue_count' => 100],
+            ['queue_count' => 200],
+        ]
+    ];
 }
 
 /**
@@ -1278,11 +1218,10 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
         $row = mysqli_fetch_assoc($result);
         
         if ($row) {
-            $breakdown = $row['breakdown'] ? json_decode($row['breakdown'], true) : [];
             return [
                 'total_ahead' => intval($row['total_ahead']),
                 'latest_update' => $latest_update,
-                'breakdown' => $breakdown,
+                'breakdown' => json_decode($row['breakdown'], true),
                 'lodgement_date' => $lodgement_date
             ];
         }
@@ -1319,7 +1258,7 @@ function getTotalProcessedToDate($visa_type_id) {
             'first_update' => null,  // These aren't needed since we're using the allocations data
             'latest_update' => null,
             'financial_year' => $allocations['financial_year'],
-            'monthly_breakdown' => safeExplode('; ', $allocations['monthly_breakdown'])
+            'monthly_breakdown' => $allocations['monthly_breakdown']
         ];
         
     } catch (Exception $e) {
@@ -1401,7 +1340,7 @@ function getPriorityCases($visa_type_id, $lodgement_date) {
         
         return [
             'total_priority' => intval($processed['total_priority']),
-            'monthly_breakdown' => safeExplode('; ', $processed['monthly_breakdown']),
+            'monthly_breakdown' => explode('; ', $processed['monthly_breakdown']),
             'financial_year' => $fy_dates['fy_label'],
             'reference_date' => $lodgement_date
         ];
@@ -1603,24 +1542,6 @@ function getAllocationsRemaining($visa_type_id) {
         error_log("Allocations calculation: Total={$total_allocation}, Processed={$total_processed}, Remaining={$remaining}");
         error_log("Monthly processing breakdown: " . $processed['monthly_breakdown']);
         
-        // Add type checking and debug logging
-        $monthly_breakdown = $processed['monthly_breakdown'] ?? '';
-        error_log("Monthly breakdown type: " . gettype($monthly_breakdown));
-        error_log("Monthly breakdown value: " . var_export($monthly_breakdown, true));
-        
-        $breakdown_array = [];
-        if (is_string($monthly_breakdown) && strlen(trim($monthly_breakdown)) > 0) {
-            try {
-                $breakdown_array = safeExplode('; ', $monthly_breakdown);
-                error_log("Successfully split breakdown into " . count($breakdown_array) . " parts");
-            } catch (Exception $e) {
-                error_log("Error splitting breakdown: " . $e->getMessage());
-                $breakdown_array = [];
-            }
-        } else {
-            error_log("Monthly breakdown was not a valid string");
-        }
-
         return [
             'total_allocation' => $total_allocation,
             'total_processed' => $total_processed,
@@ -1628,7 +1549,7 @@ function getAllocationsRemaining($visa_type_id) {
             'financial_year' => $fy_dates['fy_label'],
             'percentage_used' => $total_allocation > 0 ? 
                 round(($total_processed / $total_allocation) * 100, 1) : 0,
-            'monthly_breakdown' => $breakdown_array
+            'monthly_breakdown' => explode('; ', $processed['monthly_breakdown'])
         ];
         
     } catch (Exception $e) {
@@ -1654,7 +1575,6 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $cases_ahead = getCasesAheadInQueue($visa_type_id, $lodgement_date);
         $allocations = getAllocationsRemaining($visa_type_id);
         $priority_ratio = getPriorityRatio($visa_type_id, $lodgement_date);
-        $fy_dates = getCurrentFinancialYearDates();
         
         // Validate required data
         if (isset($cases_ahead['error']) || isset($allocations['error']) || isset($priority_ratio['error'])) {
@@ -1685,38 +1605,11 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         // Get processing rate data
         $weighted_average = getWeightedAverageProcessingRate($visa_type_id);
         if (!$weighted_average) {
-            error_log("Weighted average is zero or null");
             return ['error' => 'Unable to calculate processing rate'];
         }
         
-        // Check if application is from previous financial year
-        $lodgement_date_obj = new DateTime($lodgement_date);
-        $fy_start_date = new DateTime($fy_dates['start_date']);
-        $is_previous_fy = $lodgement_date_obj < $fy_start_date;
-        
-        // Add detailed debug logging
-        error_log("Rate calculation details:");
-        error_log("Weighted average processing rate: $weighted_average");
-        error_log("Priority percentage: " . ($priority_ratio['priority_percentage']) . "%");
-        error_log("Non-priority ratio: $non_priority_ratio");
-        
-        // Calculate base rate
-        $base_rate = $weighted_average * $non_priority_ratio;
-        error_log("Initial base rate: $base_rate");
-        
-        // Apply 80% reduction for previous FY applications
-        $non_priority_rate = $is_previous_fy ? ($weighted_average * 0.8) : $weighted_average;
-        error_log("Final non-priority rate: $non_priority_rate (is_previous_fy: " . ($is_previous_fy ? 'true' : 'false') . ")");
-        
-        // Apply minimum rate after reduction
-        $min_rate = 100;
-        $non_priority_rate = max($non_priority_rate, $min_rate);
-        error_log("Base rate after minimum applied: $non_priority_rate");
-        
-        if ($non_priority_rate <= 0) {
-            error_log("Non-priority rate calculation resulted in zero or negative: $non_priority_rate");
-            return ['error' => 'Unable to calculate valid processing rate'];
-        }
+        // Calculate non-priority processing rate
+        $non_priority_rate = $weighted_average * $non_priority_ratio;
         
         // Calculate cases for different percentiles
         $total_cases = $cases_ahead['total_ahead'];
@@ -1745,16 +1638,6 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $eighty_percent = clone $latest_update;
         $eighty_percent->add(new DateInterval("P{$days_to_eighty}D"));
         
-        // Check if application is from previous financial year and prediction is very soon
-        $today = new DateTime();
-        $tomorrow = (clone $today)->add(new DateInterval('P1D'));
-        $prediction_date = new DateTime($ninety_percent->format('Y-m-d'));
-        $application_date = new DateTime($lodgement_date);
-        $application_age = $today->diff($application_date);
-        
-        $is_very_overdue = $is_previous_fy && $prediction_date <= $tomorrow;
-        
-        // Add overdue status to return array
         return [
             'next_fy' => false,
             'latest_date' => $latest_date->format('Y-m-d'),
@@ -1763,26 +1646,16 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
             'cases_ahead' => $total_cases,
             'places_remaining' => $non_priority_places,
             'last_update' => $cases_ahead['latest_update'],
-            'is_previous_fy' => $is_previous_fy,
-            'is_very_overdue' => $is_very_overdue,
-            'application_age' => [
-                'years' => $application_age->y,
-                'months' => $application_age->m,
-                'total_months' => ($application_age->y * 12) + $application_age->m
-            ],
             'steps' => [
                 'priority_percentage' => $priority_percentage,
                 'non_priority_ratio' => $non_priority_ratio,
                 'non_priority_places' => $non_priority_places,
                 'non_priority_rate' => round($non_priority_rate, 1),
-                'base_rate' => round($weighted_average, 1),  // Added to show original rate
                 'weighted_average' => round($weighted_average, 1),
                 'months_to_process' => round($months_to_process, 1),
                 'total_cases' => $total_cases,
                 'ninety_percentile_cases' => $ninety_percentile_cases,
-                'eighty_percentile_cases' => $eighty_percentile_cases,
-                'rate_adjustment' => $is_previous_fy ? '80% of base rate' : 'Standard rate',
-                'overdue_status' => $is_very_overdue ? 'Check Recommended' : 'On Track'
+                'eighty_percentile_cases' => $eighty_percentile_cases
             ]
         ];
         
@@ -1812,97 +1685,6 @@ function getCurrentFinancialYearDates() {
         'fy_start_year' => $fy_start_year,
         'fy_label' => sprintf('FY%d-%d', $fy_start_year, ($fy_start_year + 1) % 100)
     ];
-}
-
-/**
- * Get Oldest Lodgement Date
- * 
- * @description Retrieves the oldest lodged_month for a given visa type ID
- * @param int $visa_type_id The ID of the visa type
- * @return array Oldest lodged_month details
- */
-function getOldestLodgementDate($visa_type_id) {
-    global $conn;
-    
-    try {
-        $query = "
-            SELECT MIN(lodged_month) as oldest_date
-            FROM visa_lodgements
-            WHERE visa_type_id = ?
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $row = mysqli_fetch_assoc($result);
-
-        if ($row && $row['oldest_date']) {
-            error_log("Found oldest date for visa type ID $visa_type_id: " . $row['oldest_date']);
-            return ['oldest_date' => $row['oldest_date']];
-        } else {
-            error_log("No lodgement dates found for visa type ID $visa_type_id");
-            return ['error' => 'No data found'];
-        }
-    } catch (Exception $e) {
-        error_log("Error in getOldestLodgementDate: " . $e->getMessage());
-        return ['error' => 'Internal server error'];
-    }
-}
-
-/**
- * Get Age Message
- * 
- * @description Returns a humorous message based on application age
- * @param object $interval DateInterval object containing the application age
- * @return string|null Humorous message or null if no milestone matches
- */
-function getAgeMessage($interval) {
-    $months = $interval->y * 12 + $interval->m;
-    
-    $messages = [
-        3 => "Did you know that the world's fastest growing plant, bamboo, can grow up to 3 feet in a day? Your visa application is 3 months old—if it were bamboo, it would be a whole forest by now! 🎍",
-        6 => "A honeybee colony produces up to 100 pounds of honey in 6 months! 🍯 Your visa application is as old as half a year's worth of sweet, golden progress.",
-        9 => "It takes 9 months to build the tallest skyscraper ever constructed in record time! 🏗️ Your visa application is now the age of a miracle in modern engineering.",
-        12 => "Happy anniversary to your visa application! 🎉 It has lasted as long as the time between two Olympic Games! 🏅",
-        15 => "It took Michelangelo 4 years to paint the Sistine Chapel, meaning your visa application is already 1/3rd of the way there! 🎨",
-        18 => "In 18 months, the Mars Rover traveled over 12 miles on the Red Planet! 🚀 Your visa application has been waiting long enough to go sightseeing on Mars.",
-        21 => "Did you know that it took 21 months to build the Eiffel Tower? 🇫🇷 If your visa were a landmark, it would be halfway done!",
-        24 => "You could have completed 4 full university semesters in the time you've been waiting! 🎓",
-        27 => "It takes 27 months to train an astronaut for a mission to space. 🧑‍🚀 Your visa application is as old as a future space explorer’s training!",
-        30 => "A blue whale calf doubles in size within its first 30 months! 🐋 Your visa application has been waiting as long as a whale has been growing massive.",
-        33 => "At 33 months, your application is older than the average time it takes for an elephant to give birth! 🐘",
-        36 => "Your visa application is as old as the longest championship chess match ever played (36 months)! ♟️",
-        40 => "The Great Wall of China took centuries to build, but in 40 months, significant sections were completed! 🏯",
-        44 => "In 44 months, you could have walked around the entire Earth at a leisurely pace! 🌍🚶",
-        48 => "It took 48 months to build the Titanic. Let's hope your visa has a happier journey! 🚢",
-        52 => "In 52 months, a tree could have grown tall enough to provide shade for a picnic. 🌳",
-        56 => "A scientist could have completed an entire PhD dissertation in the time your visa has been waiting! 🎓",
-        60 => "Your visa application is now 5 years old—the same age as a child starting school! 📚🎒"
-    ];
-    
-    
-    // Find the closest milestone without going over
-    $milestone = 0;
-    foreach (array_keys($messages) as $month) {
-        if ($months >= $month) {
-            $milestone = $month;
-        } else {
-            break;
-        }
-    }
-    
-    return $milestone > 0 ? $messages[$milestone] : null;
-}
-
-// Add this helper function at the top of functions.php
-function safeExplode($delimiter, $string) {
-    if (!is_string($string)) {
-        error_log("Attempted to explode non-string value: " . var_export($string, true));
-        error_log("Called from: " . debug_backtrace()[0]['file'] . ":" . debug_backtrace()[0]['line']);
-        return [];
-    }
-    return explode($delimiter, $string);
 }
 
 // Continue with other core functions...

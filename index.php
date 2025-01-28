@@ -7,16 +7,28 @@ include_once 'includes/functions.php';
 // Debug database connection
 if (!isset($conn)) {
     error_log("Database connection not established");
+    error_log("PHP version: " . phpversion());
+    error_log("MySQL extension loaded: " . (extension_loaded('mysqli') ? 'yes' : 'no'));
 } else {
     error_log("Database connection successful");
+    // Test a simple query
+    $test_query = mysqli_query($conn, "SELECT 1");
+    error_log("Test query result: " . ($test_query ? 'successful' : 'failed'));
 }
 
 // Debug visa types
+error_log("About to fetch visa subclasses");
 $visaSubclasses = getVisaSelect($conn);
-error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
+if (empty($visaSubclasses)) {
+    error_log("No visa subclasses returned. Error: " . mysqli_error($conn));
+} else {
+    error_log("Visa subclasses returned: " . print_r($visaSubclasses, true));
+}
 
 // Get the earliest possible date for the selected visa type
-$earliest_date = getOldestLodgementDate($visaSubclasses[0]['code'] ?? null);
+error_log("Starting date calculations");
+$earliest_date = getOldestLodgementDate($visaSubclasses[0]['code'] ?? null, $conn);
+error_log("Earliest date result: " . print_r($earliest_date, true));
 $min_date = $earliest_date['oldest_date'] ?? date('Y-m-d', strtotime('-1 year'));
 $max_date = date('Y-m-d'); // Today
 
@@ -82,7 +94,7 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
                 <div class="form-group">
                     <label for="visaType">Select Visa Type:</label>
                     <select id="visaType" name="visaType" required>
-                        <option value="">Select a visa type</option>
+                        <option value="" selected>Select a visa type</option>
                         <?php
                         if (empty($visaSubclasses)) {
                             error_log("No visa subclasses returned from getVisaSelect(). Connection status: " . ($conn ? "Connected" : "Not connected"));

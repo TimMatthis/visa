@@ -2,32 +2,50 @@
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
-// Get parameters from POST request
-$visa_type_id = $_POST['visaType'] ?? null;
-$application_year = $_POST['applicationYear'] ?? null;
-$application_month = $_POST['applicationMonth'] ?? null;
-$application_day = $_POST['applicationDay'] ?? null;
+// Initialize variables with default values
+$debug_data = [];
+$result = 0;
+$total_processed = [];
+$monthly_processing = [];
+$monthly_averages = [];
+$weighted_average = 0;
+$annual_allocation = [];
+
+// Get parameters from POST request with validation
+$visa_type_id = filter_input(INPUT_POST, 'visaType', FILTER_SANITIZE_NUMBER_INT);
+$application_year = filter_input(INPUT_POST, 'applicationYear', FILTER_SANITIZE_NUMBER_INT);
+$application_month = filter_input(INPUT_POST, 'applicationMonth', FILTER_SANITIZE_NUMBER_INT);
+$application_day = filter_input(INPUT_POST, 'applicationDay', FILTER_SANITIZE_NUMBER_INT);
 
 if (!$visa_type_id) {
     echo '<div class="error-message">Visa type is required</div>';
     exit;
 }
 
-// Get visa queue data
-$debug_data = debugVisaQueueSummary($visa_type_id);
-$result = getVisasOnHand($visa_type_id);
-
-// Get monthly processing data
-$monthly_processing = getProcessedByMonth($visa_type_id);
-
-// Get monthly average processing rate
-$monthly_averages = getMonthlyAverageProcessingRate($visa_type_id);
-
-// Get 3-month weighted average processing rate
-$weighted_average = getWeightedAverageProcessingRate($visa_type_id);
-
-// Get annual allocation
-$annual_allocation = getAnnualAllocation($visa_type_id);
+// Get visa queue data with error handling
+try {
+    $debug_data = debugVisaQueueSummary($visa_type_id);
+    $result = getVisasOnHand($conn);
+    
+    // Get monthly processing data
+    $monthly_processing = getProcessedByMonth($visa_type_id) ?: [];
+    
+    // Get monthly average processing rate
+    $monthly_averages = getMonthlyAverageProcessingRate($visa_type_id) ?: [];
+    
+    // Get 3-month weighted average processing rate
+    $weighted_average = getWeightedAverageProcessingRate($visa_type_id) ?: 0;
+    
+    // Get annual allocation
+    $annual_allocation = getAnnualAllocation($visa_type_id) ?: [];
+    
+    // Get total processed to date
+    $total_processed = getTotalProcessedToDate($visa_type_id) ?: [];
+    
+} catch (Exception $e) {
+    error_log("Error in stats.php: " . $e->getMessage());
+    // Continue execution with default values
+}
 
 // Get cases ahead in queue (using the application date if provided)
 $application_date = null;
@@ -56,9 +74,7 @@ $allocations_remaining = getAllocationsRemaining($visa_type_id);
 
 // Get visa processing prediction if application date is provided
 if ($application_date) {
-    error_log("Getting prediction for date: $application_date");
     $prediction = getVisaProcessingPrediction($visa_type_id, $application_date);
-    error_log("Prediction result: " . print_r($prediction, true));
 }
 
 // Generate the Visas on Hand card
@@ -66,31 +82,68 @@ if ($application_date) {
 <div class="stats-grid">
     <?php if (isset($prediction) && !isset($prediction['error'])): ?>
         <?php
-        error_log("Prediction data: " . print_r($prediction, true));
         // Calculate months away first
         $months_away = null;
-        $is_very_overdue = $prediction['is_very_overdue'] ?? false;
+        $is_very_overdue = false;
         if (!$prediction['next_fy']) {
             $today = new DateTime();
             $prediction_date = new DateTime($prediction['ninety_percent']);
-            $months_away = ($prediction_date->getTimestamp() - $today->getTimestamp()) / (30 * 24 * 60 * 60);
+            $application_date = new DateTime($application_date);
+            $application_age = $today->diff($application_date);
             
-            // Use application age from prediction data
-            $application_age = (object)[
-                'y' => $prediction['application_age']['years'],
-                'm' => $prediction['application_age']['months']
-            ];
-            error_log("Months away: $months_away");
-            error_log("Is very overdue: " . ($is_very_overdue ? 'true' : 'false'));
+            // Function to get humorous age message
+            function getAgeMessage($interval) {
+                $months = $interval->y * 12 + $interval->m;
+                
+                $messages = [
+                    3 => "That's enough time for a baby to learn to crawl! 👶",
+                    6 => "A baby would be sitting up by now! 🪑",
+                    9 => "Your application is as old as a pregnancy! 🤰",
+                    12 => "Happy birthday to your application! 🎂",
+                    18 => "Your application could be walking and talking by now! 🚶",
+                    24 => "You could've had two babies in this time! 👶👶",
+                    36 => "Your application is old enough for preschool! 🎒",
+                    48 => "Your application could be riding a bike by now! 🚲",
+                    60 => "Your application could be starting school! 📚"
+                ];
+                
+                // Find the closest milestone without going over
+                $milestone = 0;
+                foreach (array_keys($messages) as $month) {
+                    if ($months >= $month) {
+                        $milestone = $month;
+                    } else {
+                        break;
+                    }
+                }
+                
+                return $milestone > 0 ? $messages[$milestone] : null;
+            }
+            
+            $months_away = ($prediction_date->getTimestamp() - $today->getTimestamp()) / (30 * 24 * 60 * 60);
+            $days_away = ($prediction_date->getTimestamp() - $today->getTimestamp()) / (24 * 60 * 60);
+            $is_very_overdue = $days_away <= 1;
+            
+            error_log("Prediction details: " . 
+                "Next FY: " . ($prediction['next_fy'] ? 'Yes' : 'No') . ", " .
+                "Months Away: " . number_format($months_away, 1) . ", " .
+                "Days Away: " . number_format($days_away, 1) . ", " .
+                "Prediction Date: " . $prediction['ninety_percent'] . ", " .
+                "Cases Ahead: " . $prediction['cases_ahead'] . ", " .
+                "Places Remaining: " . $prediction['places_remaining'] . ", " .
+                "Message Type: " . (
+                    $prediction['next_fy'] ? 'Next FY Planning' : 
+                    ($is_very_overdue ? 'Overdue Alert' :
+                    ($months_away <= 3 ? 'Celebration' : 'On Track'))
+                )
+            );
         }
         ?>
-        <div class="stat-card prediction-highlight <?php 
-            echo (!$prediction['next_fy'] && $months_away <= 3 && !$is_very_overdue) ? 'celebration-mode' : ''; 
-            echo $is_very_overdue ? 'overdue-alert' : '';
-        ?>">
+        <div class="stat-card prediction-highlight <?php echo (!$prediction['next_fy'] && $months_away <= 3 && !$is_very_overdue) ? 'celebration-mode' : ''; ?>">
             <div class="stat-header">
                 <?php if (!$prediction['next_fy']): ?>
-                    <?php if ($is_very_overdue): ?>
+                    <?php 
+                    if ($is_very_overdue): ?>
                         <h3>⚠️ Application Status Alert</h3>
                     <?php elseif ($months_away <= 3): ?>
                         <h3>🎉 Get Ready for Australia! 🎉</h3>
@@ -225,14 +278,16 @@ if ($application_date) {
     <div class="stat-card">
         <div class="stat-header">
             <h3>Current Visa Queue</h3>
-            <span class="stat-date">As of <?php echo date('j F Y', strtotime($debug_data['latest_update'])); ?></span>
+            <?php if (isset($debug_data) && isset($debug_data['latest_update'])): ?>
+                <span class="stat-date">As of <?php echo date('j F Y', strtotime($debug_data['latest_update'])); ?></span>
+            <?php endif; ?>
         </div>
         <div class="stat-body">
-            <div class="stat-number"><?php echo number_format($result); ?></div>
+            <div class="stat-number"><?php echo isset($result) ? number_format($result) : 'N/A'; ?></div>
             <div class="stat-label">Visas Currently in Queue</div>
         </div>
         <div class="stat-footer">
-            <div class="stat-note">Total applications being processed across all lodgement months. This is often referred to Visas on-and</div>
+            <div class="stat-note">Total applications being processed across all lodgement months. This is often referred to Visas on-hand</div>
         </div>
     </div>
 
@@ -334,10 +389,14 @@ if ($application_date) {
     <div class="stat-card total-processed">
         <div class="stat-header">
             <h3>Total Processed This Year</h3>
-            <span class="stat-date"><?php echo $total_processed['financial_year']; ?></span>
+            <?php if (isset($total_processed['financial_year'])): ?>
+                <span class="stat-date"><?php echo htmlspecialchars($total_processed['financial_year']); ?></span>
+            <?php endif; ?>
         </div>
         <div class="stat-body">
-            <div class="stat-number"><?php echo number_format($total_processed['total_processed']); ?></div>
+            <div class="stat-number">
+                <?php echo isset($total_processed['total_processed']) ? number_format($total_processed['total_processed']) : 'N/A'; ?>
+            </div>
             <div class="stat-label">Visas Processed</div>
         </div>
         <div class="stat-footer">

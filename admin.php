@@ -10,6 +10,11 @@ error_log("Session data at start: " . print_r($_SESSION, true));
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
+// Make sure $conn is available
+if (!isset($conn) || $conn === null) {
+    die("Database connection failed");
+}
+
 // Simple authentication
 if (!isset($_SESSION['admin'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
@@ -94,10 +99,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . $_SERVER['PHP_SELF']);
         exit;
     } elseif (isset($_POST['purge_data'])) {
-        $visa_type_id = !empty($_POST['purge_visa_type']) ? $_POST['purge_visa_type'] : null;
-        $message = purgeVisaData($visa_type_id);
+        if ($_POST['confirmation_code'] !== 'Australopus12345') {
+            $message = ['status' => 'error', 'message' => 'Invalid confirmation code. Purge cancelled.'];
+        } else {
+            $visa_type_id = !empty($_POST['purge_visa_type']) ? $_POST['purge_visa_type'] : null;
+            $message = purgeVisaData($visa_type_id);
+        }
     } elseif (isset($_POST['update_allocation'])) {
-        $visa_type_id = $_POST['allocation_visa_type'];
+        $visa_type_id = $_POST['visa_type_id'];
         $financial_year = $_POST['financial_year'];
         $allocation_amount = $_POST['allocation_amount'];
         
@@ -445,32 +454,83 @@ $visa_types = getAllVisaTypes($conn);
                 <div class="visa-types-container">
                     <div class="add-visa-type">
                         <h3>Add New Visa Type</h3>
-                        <form action="" method="POST">
-                <div class="form-group">
+                        <form action="" method="POST" class="add-visa-form">
+                            <div class="form-group">
                                 <label for="visa_type">Visa Type:</label>
-                                <input type="text" name="visa_type" required maxlength="10" pattern="[0-9]+" placeholder="e.g. 189">
-                                <button type="submit" name="add_visa_type">Add Visa Type</button>
+                                <div class="input-button-group">
+                                    <input type="text" 
+                                           name="visa_type" 
+                                           id="visa_type"
+                                           required 
+                                           maxlength="10" 
+                                           pattern="[0-9]+" 
+                                           placeholder="e.g. 189">
+                                    <button type="submit" name="add_visa_type" class="edit-btn">Add Visa Type</button>
+                                </div>
                             </div>
                         </form>
                     </div>
 
                     <div class="existing-visa-types">
                         <h3>Current Visa Types</h3>
-                        <table>
+                        <table class="visa-types-table">
                             <thead>
                                 <tr>
                                     <th>Visa Type</th>
+                                    <th>Current Allocation</th>
+                                    <th>Previous Allocations</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($visa_types as $type): ?>
+                                <?php foreach ($visa_types as $type): 
+                                    // Get all allocations for this visa type
+                                    $sql = "SELECT financial_year_start, allocation_amount 
+                                           FROM visa_allocations 
+                                           WHERE visa_type_id = ? 
+                                           ORDER BY financial_year_start DESC";
+                                    $stmt = $conn->prepare($sql);
+                                    $stmt->bind_param('i', $type['id']);
+                                    $stmt->execute();
+                                    $result = $stmt->get_result();
+                                    $allocations = $result->fetch_all(MYSQLI_ASSOC);
+                                ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars($type['visa_type']); ?></td>
+                                    <td>Subclass <?php echo htmlspecialchars($type['visa_type']); ?></td>
                                     <td>
+                                        <?php 
+                                        $current_fy = date('Y');
+                                        $current_allocation = array_filter($allocations, function($a) use ($current_fy) {
+                                            return $a['financial_year_start'] == $current_fy;
+                                        });
+                                        echo !empty($current_allocation) ? number_format(current($current_allocation)['allocation_amount']) : 'Not set';
+                                        ?>
+                                    </td>
+                                    <td>
+                                        <?php 
+                                        foreach ($allocations as $allocation) {
+                                            if ($allocation['financial_year_start'] != $current_fy) {
+                                                echo sprintf('FY%d-%d: %s<br>', 
+                                                    $allocation['financial_year_start'],
+                                                    ($allocation['financial_year_start'] + 1) % 100,
+                                                    number_format($allocation['allocation_amount'])
+                                                );
+                                            }
+                                        }
+                                        ?>
+                                    </td>
+                                    <td class="action-buttons">
+                                        <button type="button" 
+                                                onclick="showAllocationModal(<?php echo $type['id']; ?>, '<?php echo $type['visa_type']; ?>')" 
+                                                class="edit-btn">
+                                            Edit Allocation
+                                        </button>
                                         <form action="" method="POST" style="display: inline;">
                                             <input type="hidden" name="id" value="<?php echo $type['id']; ?>">
-                                            <button type="submit" name="delete_visa_type" class="delete-btn">Delete</button>
+                                            <button type="submit" name="delete_visa_type" class="delete-btn" 
+                                                    onclick="return confirm('Are you sure you want to delete this visa type?')">
+                                                Delete
+                                            </button>
                                         </form>
                                     </td>
                                 </tr>
@@ -487,22 +547,32 @@ $visa_types = getAllVisaTypes($conn);
                 <h2>5. Data Management</h2>
                 <div class="warning-box">
                     <p>⚠️ Warning: These actions cannot be undone!</p>
+                    <p>You will need to enter the confirmation code to proceed with data purge.</p>
                 </div>
-                <form action="" method="POST" onsubmit="return confirmPurge(this);">
+                <form action="" method="POST" onsubmit="return confirmPurge(this);" class="purge-form">
                     <div class="form-group">
                         <label for="purge_visa_type">Select Visa Type:</label>
-                        <select name="purge_visa_type">
+                        <select name="purge_visa_type" id="purge_visa_type">
                             <option value="">All Visa Types</option>
                             <?php foreach ($visa_types as $type): ?>
                                 <option value="<?php echo $type['id']; ?>">
-                                    <?php echo htmlspecialchars($type['visa_type']); ?>
+                                    Subclass <?php echo htmlspecialchars($type['visa_type']); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label for="confirmation_code">Enter Confirmation Code:</label>
+                        <input type="password" 
+                               name="confirmation_code" 
+                               id="confirmation_code" 
+                               required 
+                               placeholder="Enter confirmation code">
+                        <small class="warning-text">This action will permanently delete the selected data.</small>
+                    </div>
                     <button type="submit" name="purge_data" class="delete-btn">Purge Data</button>
-            </form>
-        </section>
+                </form>
+            </section>
         </div>
 
         <div id="dataSummary" class="tab-content" style="display: none;">
@@ -539,135 +609,8 @@ $visa_types = getAllVisaTypes($conn);
                                     <small>As of <?php echo date('d M Y', strtotime($debug_data['latest_update'])); ?></small>
                                 </div>
                                 
-                                <div class="queue-position-calculator">
-                                    <label for="application_date_<?php echo $type['id']; ?>">Enter Your Application Date:</label>
-                                    <input type="date" 
-                                           id="application_date_<?php echo $type['id']; ?>" 
-                                           class="application-date"
-                                           data-visa-type="<?php echo $type['id']; ?>"
-                                           max="<?php echo date('Y-m-d'); ?>">
-                                    
-                                    <div class="queue-position-visual" id="queue_visual_<?php echo $type['id']; ?>">
-                                        <!-- Will be populated by JavaScript -->
-                                    </div>
-                                </div>
                                 
-                                <?php 
-                                $processing_rates = getVisaProcessingRates($type['id']);
-                                if ($processing_rates): 
-                                    $latest_rate = reset($processing_rates);
-                                    $trend = $latest_rate['visas_processed'] > $latest_rate['last_three_months_average'];
-                                ?>
-                                    <div class="processing-rates">
-                                        <h4>Processing Rate Analysis</h4>
-                                        <div class="processing-stats-grid">
-                                            <div class="stat-box">
-                                                <label>Year to Date Processing</label>
-                                                <span class="value"><?php echo number_format($latest_rate['yearly_total']); ?></span>
-                                                <small>Total visas processed this year</small>
-                                            </div>
-                                            
-                                            <div class="stat-box">
-                                                <label>Annual Processing Rate</label>
-                                                <span class="value"><?php echo number_format($latest_rate['yearly_average'], 0); ?></span>
-                                                <small>Average visas per month</small>
-                                            </div>
-                                            
-                                            <div class="stat-box">
-                                                <label>Recent Processing Rate</label>
-                                                <span class="value"><?php echo number_format($latest_rate['last_three_months_average'], 0); ?></span>
-                                                <small>Last 3 months average</small>
-                                            </div>
-                                            
-                                            <div class="stat-box">
-                                                <label>Annual Allocation</label>
-                                                <span class="value"><?php echo number_format($latest_rate['annual_allocation']); ?></span>
-                                                <small>Total places for <?php echo date('Y'); ?></small>
-                                            </div>
-                                            
-                                            <div class="stat-box">
-                                                <label>Priority Processing</label>
-                                                <span class="value">
-                                                    <?php echo number_format($latest_rate['priority_processed']); ?>
-                                                    <small class="percentage">(<?php echo $latest_rate['priority_percentage']; ?>%)</small>
-                                                </span>
-                                                <small>Priority visas processed</small>
-                                            </div>
-                                            
-                                            <div class="stat-box">
-                                                <label>Remaining Quota</label>
-                                                <span class="value"><?php echo number_format($latest_rate['remaining_quota']); ?></span>
-                                                <small>Places available this year</small>
-                                            </div>
-                                        </div>
-
-                                        <div class="rate-highlight">
-                                            <label>Last Month's Processing:</label>
-                                            <div class="rate-info">
-                                                <span class="rate-number <?php echo $latest_rate['visas_processed'] > 0 ? 'positive' : 'negative'; ?>">
-                                                    <?php echo number_format(abs($latest_rate['visas_processed'])); ?>
-                                                    visas processed
-                                                </span>
-                                                <div class="trend-indicator <?php echo $trend ? 'improving' : 'slowing'; ?>">
-                                                    <span class="trend-arrow"><?php echo $trend ? '↑' : '↓'; ?></span>
-                                                    <span class="trend-text">
-                                                        Processing is <?php echo $trend ? 'accelerating' : 'slowing down'; ?>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <small>
-                                                Between <?php echo date('M Y', strtotime($latest_rate['previous_month'])); ?> 
-                                                and <?php echo date('M Y', strtotime($latest_rate['current_month'])); ?>
-                                            </small>
-                                        </div>
-                                        <div class="rates-list">
-                                            <?php foreach ($processing_rates as $rate): ?>
-                                                <div class="rate-item">
-                                                    <div class="rate-period">
-                                                        <span class="period">
-                                                            <?php echo date('M', strtotime($rate['previous_month'])); ?> → 
-                                                            <?php echo date('M Y', strtotime($rate['current_month'])); ?>
-                                                        </span>
-                                                        <small class="period-label">Reporting Period</small>
-                                                    </div>
-                                                    <div class="rate-details">
-                                                        <div class="rate-numbers">
-                                                            <span class="count <?php echo $rate['visas_processed'] > 0 ? 'positive' : 'negative'; ?>">
-                                                                <?php echo number_format(abs($rate['visas_processed'])); ?>
-                                                            </span>
-                                                            <small class="count-label">Visas Processed</small>
-                                                        </div>
-                                                        <div class="rate-average">
-                                                            <span class="ytd-average" title="Running average up to this month">
-                                                                <?php echo number_format(abs($rate['ytd_average']), 0); ?>
-                                                            </span>
-                                                            <small class="average-label">Monthly Average</small>
-                                                        </div>
-                                                        <?php if ($rate === $latest_rate): ?>
-                                                            <span class="trend-arrow <?php echo $trend ? 'improving' : 'slowing'; ?>">
-                                                                <?php echo $trend ? '↑' : '↓'; ?>
-                                                            </span>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    </div>
-                                <?php endif; ?>
                                 
-                                <?php if (!empty($debug_data['details'])): ?>
-                                    <div class="queue-details">
-                                        <h4>Queue Breakdown</h4>
-                                        <div class="queue-list">
-                                            <?php foreach ($debug_data['details'] as $detail): ?>
-                                                <div class="queue-item">
-                                                    <span class="month"><?php echo date('M Y', strtotime($detail['lodged_month'])); ?></span>
-                                                    <span class="count"><?php echo number_format($detail['queue_count']); ?></span>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    </div>
-                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -781,144 +724,178 @@ $visa_types = getAllVisaTypes($conn);
     <?php endif; ?>
     </script>
 
-    <style>
-    .warning-box {
-        background-color: #fff3cd;
-        border: 1px solid #ffeeba;
-        color: #856404;
-        padding: 1rem;
-        margin-bottom: 1rem;
-        border-radius: 4px;
+    
+
+    <!-- Add this modal HTML just before the closing </body> tag -->
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Queue History Details</h3>
+            <div id="historyContent"></div>
+        </div>
+    </div>
+
+    <!-- Add this JavaScript just before the closing </body> tag -->
+    <script>
+    // Add these new functions
+    function showHistory(lodgedMonth) {
+        const modal = document.getElementById('historyModal');
+        const content = document.getElementById('historyContent');
+        const span = document.getElementsByClassName("close")[0];
+        
+        // Get the visa type from the current URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const visaType = urlParams.get('visa_type');
+        
+        // Fetch history data
+        fetch(`get_history.php?visa_type=${visaType}&lodged_month=${lodgedMonth}`)
+            .then(response => response.json())
+            .then(response => {
+                if (response.status === 'error') {
+                    throw new Error(response.message);
+                }
+
+                if (!response.data || response.data.length === 0) {
+                    content.innerHTML = '<p>No history data available for this period.</p>';
+                    modal.style.display = "block";
+                    return;
+                }
+
+                let html = '<table class="history-table">';
+                html += '<thead><tr><th>Update Date</th><th>Queue Count</th><th>Change</th></tr></thead><tbody>';
+                
+                let previousCount = null;
+                response.data.forEach(update => {
+                    const change = previousCount !== null 
+                        ? update.queue_count - previousCount 
+                        : 0;
+                        
+                    const changeClass = change === 0 ? 'neutral' : (change < 0 ? 'positive' : 'negative');
+                    const changeSymbol = change === 0 ? '→' : (change < 0 ? '↓' : '↑');
+                    
+                    html += `<tr>
+                        <td>${new Date(update.update_month).toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })}</td>
+                        <td>${update.queue_count.toLocaleString()}</td>
+                        <td class="${changeClass}">
+                            ${changeSymbol} ${Math.abs(change).toLocaleString()}
+                        </td>
+                    </tr>`;
+                    
+                    previousCount = update.queue_count;
+                });
+                
+                html += '</tbody></table>';
+                content.innerHTML = html;
+                modal.style.display = "block";
+            })
+            .catch(error => {
+                content.innerHTML = `<p class="error">Error loading history: ${error.message}</p>`;
+                modal.style.display = "block";
+            });
+        
+        // Close modal when clicking the x
+        span.onclick = function() {
+            modal.style.display = "none";
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+    }
+    </script>
+
+ 
+
+    <!-- Add this modal HTML before the closing body tag -->
+    <div id="allocationModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>Edit Visa Allocation</h3>
+            <form id="allocationForm" method="POST" class="allocation-form">
+                <input type="hidden" name="visa_type_id" id="modalVisaTypeId">
+                <div class="form-group">
+                    <label>Visa Subclass: <span id="modalVisaType"></span></label>
+                </div>
+                <div class="form-group">
+                    <label for="financial_year">Financial Year:</label>
+                    <select name="financial_year" id="financial_year" required>
+                        <?php 
+                        $current_year = date('Y');
+                        for($i = $current_year - 1; $i <= $current_year + 1; $i++) {
+                            echo "<option value='$i'>$i-" . ($i + 1) . "</option>";
+                        }
+                        ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="allocation_amount">Allocation Amount:</label>
+                    <input type="number" name="allocation_amount" id="allocation_amount" required min="0">
+                </div>
+                <button type="submit" name="update_allocation" class="primary-btn">Save Allocation</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add this JavaScript before the closing body tag -->
+    <script>
+    function showAllocationModal(visaTypeId, visaType) {
+        const modal = document.getElementById('allocationModal');
+        document.getElementById('modalVisaTypeId').value = visaTypeId;
+        document.getElementById('modalVisaType').textContent = visaType;
+        
+        // Get current allocation if exists
+        fetch(`get_allocation.php?visa_type_id=${visaTypeId}&year=${document.getElementById('financial_year').value}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success' && data.allocation) {
+                    document.getElementById('allocation_amount').value = data.allocation.allocation_amount;
+                } else {
+                    document.getElementById('allocation_amount').value = '';
+                }
+            });
+        
+        modal.style.display = "block";
     }
 
-    .delete-btn {
-        background-color: #dc3545;
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 4px;
-        cursor: pointer;
+    // Close modal functionality
+    document.querySelector('#allocationModal .close').onclick = function() {
+        document.getElementById('allocationModal').style.display = "none";
     }
 
-    .delete-btn:hover {
-        background-color: #c82333;
+    window.onclick = function(event) {
+        const modal = document.getElementById('allocationModal');
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
     }
+    </script>
 
-    .processing-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 2rem;
+   
+    <!-- Add this JavaScript function -->
+    <script>
+    function confirmPurge(form) {
+        const confirmationCode = form.confirmation_code.value;
+        const expectedCode = "Australopus12345";
+        const visaType = form.purge_visa_type.options[form.purge_visa_type.selectedIndex].text;
+        
+        if (confirmationCode !== expectedCode) {
+            alert("Invalid confirmation code. Purge cancelled.");
+            return false;
+        }
+        
+        const message = visaType === "All Visa Types" 
+            ? "Are you absolutely sure you want to purge ALL visa data? This action cannot be undone!"
+            : `Are you absolutely sure you want to purge data for ${visaType}? This action cannot be undone!`;
+            
+        return confirm(message);
     }
+    </script>
 
-    .stat-box {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-        text-align: center;
-    }
+    
 
-    .stat-box label {
-        color: #64748b;
-        font-size: 0.9rem;
-        font-weight: 500;
-        display: block;
-        margin-bottom: 0.5rem;
-    }
 
-    .stat-box .value {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #0369a1;
-        display: block;
-    }
-
-    .stat-box small {
-        color: #64748b;
-        font-size: 0.8rem;
-        display: block;
-        margin-top: 0.5rem;
-    }
-
-    .stat-box .percentage {
-        display: inline;
-        font-size: 1rem;
-        color: #059669;
-        margin-left: 0.5rem;
-    }
-
-    .stat-box:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        transition: all 0.2s ease;
-    }
-
-    .rate-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem;
-        background: #f8fafc;
-        border-radius: 8px;
-        transition: background-color 0.2s ease;
-    }
-
-    .rate-period {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .period-label {
-        color: #64748b;
-        font-size: 0.8rem;
-    }
-
-    .rate-details {
-        display: flex;
-        align-items: center;
-        gap: 2rem;
-    }
-
-    .rate-numbers, .rate-average {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.25rem;
-    }
-
-    .count-label, .average-label {
-        color: #64748b;
-        font-size: 0.8rem;
-        white-space: nowrap;
-    }
-
-    .ytd-average {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #64748b;
-    }
-
-    .trend-arrow {
-        font-size: 1.2rem;
-        width: 24px;
-        height: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-    }
-
-    .trend-arrow.improving {
-        background: #ecfdf5;
-        color: #059669;
-    }
-
-    .trend-arrow.slowing {
-        background: #fef2f2;
-        color: #dc2626;
-    }
-    </style>
 </body>
 </html> 

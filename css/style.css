@@ -2947,3 +2947,41 @@ select:focus option:disabled {
         font-size: 1.1rem;
     }
 }
+
+.stat-card.prediction-highlight.overdue-alert {
+    border: 2px solid #ff6b6b;
+    background: linear-gradient(to bottom, #fff5f5, #fff);
+}
+
+.stat-card.prediction-highlight.overdue-alert .alert-message {
+    color: #e03131;
+}
+
+.stat-card.prediction-highlight.overdue-alert .action-steps {
+    background: #fff5f5;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+.stat-card.prediction-highlight.overdue-alert .contact-info {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #ffc9c9;
+}
+
+.stat-card.prediction-highlight.overdue-alert .contact-link {
+    display: inline-block;
+    color: #e03131;
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    border: 1px solid #e03131;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.stat-card.prediction-highlight.overdue-alert .contact-link:hover {
+    background: #e03131;
+    color: white;
+}
