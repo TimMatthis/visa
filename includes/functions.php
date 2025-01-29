@@ -351,17 +351,41 @@ function getAllVisaTypes($conn) {
  * @return string Success or error message
  * @location Admin Panel > Manage Visa Types tab > Add New
  */
-function addVisaType($visa_type) {
-    global $pdo;
+function addVisaType($visa_type, $conn) {
     try {
-        $stmt = $pdo->prepare("INSERT INTO visa_types (visa_type) VALUES (?)");
-        $stmt->execute([$visa_type]);
-        return "Visa type added successfully";
-    } catch(PDOException $e) {
-        if ($e->getCode() == 23000) {
-            return "Error: This visa type already exists";
+        // Check if visa type already exists
+        $check_stmt = mysqli_prepare($conn, "SELECT id FROM visa_types WHERE visa_type = ?");
+        mysqli_stmt_bind_param($check_stmt, "s", $visa_type);
+        mysqli_stmt_execute($check_stmt);
+        $result = mysqli_stmt_get_result($check_stmt);
+        
+        if (mysqli_fetch_assoc($result)) {
+            return [
+                'status' => 'error',
+                'message' => 'Error: This visa type already exists'
+            ];
         }
-        return "Error adding visa type: " . $e->getMessage();
+        
+        // Add new visa type
+        $stmt = mysqli_prepare($conn, "INSERT INTO visa_types (visa_type) VALUES (?)");
+        mysqli_stmt_bind_param($stmt, "s", $visa_type);
+        
+        if (mysqli_stmt_execute($stmt)) {
+            return [
+                'status' => 'success',
+                'message' => 'Visa type added successfully'
+            ];
+        } else {
+            return [
+                'status' => 'error',
+                'message' => 'Error adding visa type: ' . mysqli_error($conn)
+            ];
+        }
+    } catch (Exception $e) {
+        return [
+            'status' => 'error',
+            'message' => 'Error adding visa type: ' . $e->getMessage()
+        ];
     }
 }
 
@@ -1540,7 +1564,15 @@ function getAllocationsRemaining($visa_type_id) {
         $allocation = mysqli_fetch_assoc($result);
         
         if (!$allocation) {
-            return ['error' => 'No allocation found for current financial year'];
+            // If no allocation found for current FY, return 0 remaining places
+            return [
+                'total_allocation' => 0,
+                'total_processed' => 0,
+                'remaining' => 0,
+                'financial_year' => $fy_dates['fy_label'],
+                'percentage_used' => 0,
+                'monthly_breakdown' => []
+            ];
         }
         
         // Get total processed this FY using the same query structure as getTotalProcessedToDate
@@ -1655,6 +1687,33 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $allocations = getAllocationsRemaining($visa_type_id);
         $priority_ratio = getPriorityRatio($visa_type_id, $lodgement_date);
         $fy_dates = getCurrentFinancialYearDates();
+        $weighted_average = getWeightedAverageProcessingRate($visa_type_id);
+        
+        // Check if application is from previous financial year
+        $lodgement_date_obj = new DateTime($lodgement_date);
+        $current_fy_start = new DateTime($fy_dates['start_date']);
+        $is_previous_fy = $lodgement_date_obj < $current_fy_start;
+        
+        // Check if application should be processed very soon (less than 15% of monthly rate)
+        $processing_threshold = $weighted_average * 0.15;
+        $is_overdue = false;
+
+        // Define overdue conditions:
+        // 1. Has cases ahead but fewer than 15% of monthly rate OR
+        // 2. Is from previous FY and has zero cases ahead
+        error_log("Checking overdue conditions:");
+        error_log("- Processing threshold (15% of $weighted_average): $processing_threshold");
+        error_log("- Cases ahead: " . $cases_ahead['total_ahead']);
+        error_log("- Is previous FY: " . ($is_previous_fy ? 'true' : 'false'));
+
+        if (($cases_ahead['total_ahead'] > 0 && $cases_ahead['total_ahead'] < $processing_threshold) ||
+            ($is_previous_fy && $cases_ahead['total_ahead'] === 0)) {
+            $is_overdue = true;
+            error_log("Application marked as overdue because: " . 
+                (($cases_ahead['total_ahead'] > 0 && $cases_ahead['total_ahead'] < $processing_threshold) ? 
+                    "cases ahead ({$cases_ahead['total_ahead']}) is less than 15% of processing rate ($processing_threshold)" :
+                    "application is from previous FY with no cases ahead"));
+        }
         
         // Validate required data
         if (isset($cases_ahead['error']) || isset($allocations['error']) || isset($priority_ratio['error'])) {
@@ -1668,16 +1727,46 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         
         // Check if processing likely in next FY
         if ($cases_ahead['total_ahead'] > $non_priority_places) {
+            // Calculate base rate
+            $base_rate = $weighted_average * $non_priority_ratio;
+            error_log("Initial base rate for next FY case: $base_rate");
+            
+            // Apply 80% reduction for previous FY applications
+            $non_priority_rate = $is_previous_fy ? ($weighted_average * 0.8) : $weighted_average;
+            error_log("Non-priority rate before minimum check: $non_priority_rate");
+            
+            // Apply minimum rate after reduction
+            $min_rate = 100;
+            $non_priority_rate = max($non_priority_rate, $min_rate);
+            error_log("Final non-priority rate after minimum check: $non_priority_rate");
+            
+            // Add debug logging
+            error_log("Next FY calculation details:");
+            error_log("- Base rate: $base_rate");
+            error_log("- Non-priority rate: $non_priority_rate");
+            error_log("- Weighted average: $weighted_average");
+            error_log("- Priority percentage: " . ($priority_percentage * 100) . "%");
+            
             return [
                 'next_fy' => true,
-                'message' => 'Processing likely in next financial year. Prediction available after budget announcement.',
+                'message' => 'Processing likely in next financial year. A prediction can only be made after the budget is announced as the Visa allocations will be set in the budget.',
                 'cases_ahead' => $cases_ahead['total_ahead'],
                 'places_remaining' => $non_priority_places,
                 'last_update' => $cases_ahead['latest_update'],
+                'current_fy_start' => $fy_dates['start_date'],
+                'weighted_average' => $weighted_average,
+                'non_priority_rate' => $non_priority_rate,
+                'total_cases' => $cases_ahead['total_ahead'],
+                'eighty_percentile_cases' => round($cases_ahead['total_ahead'] * 0.8),
+                'seventy_percentile_cases' => round($cases_ahead['total_ahead'] * 0.7),
+                'months_to_process' => null,  // Cannot predict for next FY
                 'steps' => [
                     'priority_percentage' => $priority_percentage,
                     'non_priority_ratio' => $non_priority_ratio,
-                    'non_priority_places' => $non_priority_places
+                    'non_priority_places' => $non_priority_places,
+                    'weighted_average' => $weighted_average,
+                    'non_priority_rate' => $non_priority_rate,
+                    'base_rate' => $base_rate
                 ]
             ];
         }
@@ -1689,11 +1778,6 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
             return ['error' => 'Unable to calculate processing rate'];
         }
         
-        // Check if application is from previous financial year
-        $lodgement_date_obj = new DateTime($lodgement_date);
-        $fy_start_date = new DateTime($fy_dates['start_date']);
-        $is_previous_fy = $lodgement_date_obj < $fy_start_date;
-        
         // Add detailed debug logging
         error_log("Rate calculation details:");
         error_log("Weighted average processing rate: $weighted_average");
@@ -1703,6 +1787,14 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         // Calculate base rate
         $base_rate = $weighted_average * $non_priority_ratio;
         error_log("Initial base rate: $base_rate");
+        
+        // Cap priority percentage at 25% for worst case scenario
+        $original_priority_percentage = $priority_percentage;
+        if ($priority_percentage > 0.25) {
+            error_log("Priority percentage capped from " . ($priority_percentage * 100) . "% to 25%");
+            $priority_percentage = 0.25;
+            $non_priority_ratio = 0.75; // 1 - 0.25
+        }
         
         // Apply 80% reduction for previous FY applications
         $non_priority_rate = $is_previous_fy ? ($weighted_average * 0.8) : $weighted_average;
@@ -1722,16 +1814,25 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $total_cases = $cases_ahead['total_ahead'];
         $ninety_percentile_cases = ceil($total_cases * 0.9); // 90% of cases ahead
         $eighty_percentile_cases = ceil($total_cases * 0.8); // 80% of cases ahead
+        $seventy_percentile_cases = ceil($total_cases * 0.7); // 70% of cases ahead
         
         // Calculate months to process for each scenario
         $months_to_process = $total_cases / $non_priority_rate;
         $months_to_ninety = $ninety_percentile_cases / $non_priority_rate;
-        $months_to_eighty = $eighty_percentile_cases / $non_priority_rate;
+        $months_to_eighty = $eighty_percentile_cases / $non_priority_rate;  // This is the one we use for display
+        $months_to_seventy = $seventy_percentile_cases / $non_priority_rate;
+        
+        // Add debug logging
+        error_log("Processing time calculation:");
+        error_log("80th percentile cases: $eighty_percentile_cases");
+        error_log("Non-priority rate: $non_priority_rate");
+        error_log("Months to process (80th): $months_to_eighty");
         
         // Calculate days for each scenario
         $days_to_process = ceil($months_to_process * 30.44);
         $days_to_ninety = ceil($months_to_ninety * 30.44);
         $days_to_eighty = ceil($months_to_eighty * 30.44);
+        $days_to_seventy = ceil($months_to_seventy * 30.44);
         
         // Calculate prediction dates
         $latest_update = new DateTime($cases_ahead['latest_update']);
@@ -1745,6 +1846,9 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $eighty_percent = clone $latest_update;
         $eighty_percent->add(new DateInterval("P{$days_to_eighty}D"));
         
+        $seventy_percent = clone $latest_update;
+        $seventy_percent->add(new DateInterval("P{$days_to_seventy}D"));
+        
         // Check if application is from previous financial year and prediction is very soon
         $today = new DateTime();
         $tomorrow = (clone $today)->add(new DateInterval('P1D'));
@@ -1757,14 +1861,22 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         // Add overdue status to return array
         return [
             'next_fy' => false,
+            'is_overdue' => $is_overdue,
+            'processing_threshold' => $processing_threshold,
             'latest_date' => $latest_date->format('Y-m-d'),
             'ninety_percent' => $ninety_percent->format('Y-m-d'),
             'eighty_percent' => $eighty_percent->format('Y-m-d'),
+            'seventy_percent' => $seventy_percent->format('Y-m-d'),
             'cases_ahead' => $total_cases,
             'places_remaining' => $non_priority_places,
             'last_update' => $cases_ahead['latest_update'],
+            'weighted_average' => $weighted_average,
             'is_previous_fy' => $is_previous_fy,
             'is_very_overdue' => $is_very_overdue,
+            'current_fy_start' => $fy_dates['start_date'],  // Add this
+            'lodgement_date' => $lodgement_date,  // Add this too for consistency
+            'priority_percentage_capped' => $original_priority_percentage > 0.25,
+            'original_priority_percentage' => $original_priority_percentage,
             'application_age' => [
                 'years' => $application_age->y,
                 'months' => $application_age->m,
@@ -1775,12 +1887,12 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
                 'non_priority_ratio' => $non_priority_ratio,
                 'non_priority_places' => $non_priority_places,
                 'non_priority_rate' => round($non_priority_rate, 1),
-                'base_rate' => round($weighted_average, 1),  // Added to show original rate
+                'base_rate' => round($weighted_average, 1),
                 'weighted_average' => round($weighted_average, 1),
-                'months_to_process' => round($months_to_process, 1),
+                'months_to_process' => $months_to_eighty,  // Changed from $months_to_process
                 'total_cases' => $total_cases,
-                'ninety_percentile_cases' => $ninety_percentile_cases,
                 'eighty_percentile_cases' => $eighty_percentile_cases,
+                'seventy_percentile_cases' => $seventy_percentile_cases,
                 'rate_adjustment' => $is_previous_fy ? '80% of base rate' : 'Standard rate',
                 'overdue_status' => $is_very_overdue ? 'Check Recommended' : 'On Track'
             ]

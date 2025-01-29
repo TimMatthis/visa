@@ -136,7 +136,7 @@ $visa_types = getAllVisaTypes($conn);
     <!-- Add this script block in the head -->
     <script>
         // Make switchTab globally available
-        window.switchTab = function(tabId) {
+        function switchTab(tabId) {
             console.log('Switching to tab:', tabId);
             
             // Hide all tab contents
@@ -174,6 +174,11 @@ $visa_types = getAllVisaTypes($conn);
             } else {
                 console.error('Could not find button for tab:', tabId);
             }
+
+            // Update URL with current tab
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', tabId);
+            history.replaceState({}, '', url.toString());
         };
 
         // Initialize when the page loads
@@ -385,7 +390,7 @@ $visa_types = getAllVisaTypes($conn);
                 <form action="" method="GET" class="visa-selector">
                     <div class="form-group">
                         <label for="visa_type">Select Visa Type:</label>
-                        <select name="visa_type" onchange="this.form.submit()">
+                        <select name="visa_type" onchange="handleVisaTypeChange(this)">
                             <option value="">Select Visa Type</option>
                             <?php foreach ($visa_types as $type): ?>
                                 <option value="<?php echo $type['id']; ?>" 
@@ -394,6 +399,8 @@ $visa_types = getAllVisaTypes($conn);
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                        <!-- Add hidden input for current tab -->
+                        <input type="hidden" name="tab" value="view">
                     </div>
                 </form>
 
@@ -408,6 +415,7 @@ $visa_types = getAllVisaTypes($conn);
                                     <th>Lodgement Month</th>
                                     <th>Initial Count</th>
                                     <th>Latest Count</th>
+                                    <th>Movement</th>
                                     <th>Processing Rate</th>
                                     <th>Actions</th>
                                 </tr>
@@ -415,6 +423,8 @@ $visa_types = getAllVisaTypes($conn);
                             <tbody>
                                 <?php foreach ($queue_data['lodgements'] as $lodgement): 
                                     $latest_count = end($lodgement['updates'])['queue_count'];
+                                    $movement = $lodgement['first_count'] - $latest_count;
+                                    $movement_class = $movement > 0 ? 'positive' : ($movement < 0 ? 'negative' : 'neutral');
                                     $processing_rate = $lodgement['first_count'] > 0 
                                         ? round((($lodgement['first_count'] - $latest_count) / $lodgement['first_count']) * 100, 1)
                                         : 0;
@@ -423,6 +433,12 @@ $visa_types = getAllVisaTypes($conn);
                                     <td><?php echo date('M Y', strtotime($lodgement['lodged_month'])); ?></td>
                                     <td><?php echo number_format($lodgement['first_count']); ?></td>
                                     <td><?php echo number_format($latest_count); ?></td>
+                                    <td class="<?php echo $movement_class; ?>">
+                                        <?php 
+                                            echo $movement > 0 ? '+' : '';
+                                            echo number_format($movement); 
+                                        ?>
+                                    </td>
                                     <td>
                                         <div class="progress-bar" style="--progress: <?php echo $processing_rate; ?>%">
                                             <?php echo $processing_rate; ?>%
@@ -450,24 +466,22 @@ $visa_types = getAllVisaTypes($conn);
 
         <div id="manageVisaTypes" class="tab-content">
             <section class="admin-section">
-                <h2>4. Manage Visa Types</h2>
-                <div class="visa-types-container">
-                    <div class="add-visa-type">
+                <h2>Manage Visa Types</h2>
+                <div class="visa-management">
+                    <div class="add-visa-form">
                         <h3>Add New Visa Type</h3>
-                        <form action="" method="POST" class="add-visa-form">
+                        <form action="" method="POST">
                             <div class="form-group">
                                 <label for="visa_type">Visa Type:</label>
-                                <div class="input-button-group">
-                                    <input type="text" 
-                                           name="visa_type" 
-                                           id="visa_type"
-                                           required 
-                                           maxlength="10" 
-                                           pattern="[0-9]+" 
-                                           placeholder="e.g. 189">
-                                    <button type="submit" name="add_visa_type" class="admin-link">Add Visa Type</button>
-                                </div>
+                                <input type="text" 
+                                       name="visa_type" 
+                                       id="visa_type"
+                                       required 
+                                       maxlength="10" 
+                                       pattern="[0-9]+" 
+                                       placeholder="e.g. 189">
                             </div>
+                            <button type="submit" name="add_visa_type" class="btn btn-primary">Add Visa Type</button>
                         </form>
                     </div>
 
@@ -534,12 +548,14 @@ $visa_types = getAllVisaTypes($conn);
                                     <td class="action-buttons">
                                         <button type="button" 
                                                 onclick="showAllocationModal(<?php echo $type['id']; ?>, '<?php echo $type['visa_type']; ?>')" 
-                                                class="admin-link">
+                                                class="btn btn-secondary">
                                             Edit Allocation
                                         </button>
                                         <form action="" method="POST" style="display: inline;">
                                             <input type="hidden" name="id" value="<?php echo $type['id']; ?>">
-                                            <button type="submit" name="delete_visa_type" class="admin-link" 
+                                            <button type="submit" 
+                                                    name="delete_visa_type" 
+                                                    class="btn btn-danger" 
                                                     onclick="return confirm('Are you sure you want to delete this visa type?')">
                                                 Delete
                                             </button>
@@ -829,6 +845,12 @@ $visa_types = getAllVisaTypes($conn);
                 <h3>Visa Subclass <span id="modalVisaType"></span> Allocations</h3>
             </div>
 
+            <!-- Add loading indicator -->
+            <div class="modal-loading">
+                <div class="modal-spinner"></div>
+                <div class="modal-loading-text">Loading allocation data...</div>
+            </div>
+
             <!-- Current Allocations Section -->
             <div class="allocation-section current-allocations">
                 <h4>Current Allocations</h4>
@@ -847,81 +869,6 @@ $visa_types = getAllVisaTypes($conn);
         </div>
     </div>
 
-    <!-- Add this CSS -->
-    <style>
-    .allocation-section {
-        margin-bottom: 2rem;
-        padding: 1.5rem;
-        background: #f8fafc;
-        border-radius: 8px;
-    }
-
-    .allocations-list {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-    }
-
-    .allocation-row {
-        display: grid;
-        grid-template-columns: 200px 1fr auto;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.5rem;
-        border-radius: 4px;
-        background: white;
-    }
-
-    .allocation-row.existing {
-        background: #f0f9ff;
-        border-left: 3px solid #3b82f6;
-    }
-
-    .year-label {
-        font-weight: 500;
-        color: #1e293b;
-    }
-
-    .allocation-input {
-        width: 150px;
-        padding: 0.5rem;
-        border: 1px solid #e2e8f0;
-        border-radius: 4px;
-    }
-
-    .save-btn {
-        padding: 0.5rem 1rem;
-        background: #3b82f6;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .save-btn:hover {
-        background: #2563eb;
-    }
-
-    .save-btn:disabled {
-        background: #94a3b8;
-        cursor: not-allowed;
-    }
-
-    .save-status {
-        margin-left: 1rem;
-        font-size: 0.9rem;
-    }
-
-    .save-status.success {
-        color: #059669;
-    }
-
-    .save-status.error {
-        color: #dc2626;
-    }
-    </style>
-
     <!-- Update the JavaScript -->
     <script>
     let visaTypeId = null;
@@ -929,21 +876,38 @@ $visa_types = getAllVisaTypes($conn);
     function showAllocationModal(typeId, visaType) {
         visaTypeId = typeId;
         const modal = document.getElementById('allocationModal');
+        const modalContent = modal.querySelector('.modal-content');
         document.getElementById('modalVisaType').textContent = visaType;
         
-        // Fetch existing allocations
-        fetchAllocations();
-        
+        // Show modal and set loading state
         modal.style.display = "block";
+        modalContent.classList.add('loading');
+        
+        // Fetch existing allocations
+        fetchAllocations()
+            .then(() => {
+                // Remove loading state when data is loaded
+                modalContent.classList.remove('loading');
+            })
+            .catch(error => {
+                // Handle error and remove loading state
+                console.error('Error fetching allocations:', error);
+                modalContent.classList.remove('loading');
+                // Optionally show error message
+                document.getElementById('existingAllocations').innerHTML = 
+                    '<div class="error">Error loading allocation data. Please try again.</div>';
+            });
     }
 
     function fetchAllocations() {
-        fetch(`get_allocations.php?visa_type_id=${visaTypeId}`)
+        return fetch(`get_allocations.php?visa_type_id=${visaTypeId}`)
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
                     populateAllocations(data.allocations);
                     populateAvailableYears(data.allocations);
+                } else {
+                    throw new Error(data.message || 'Failed to fetch allocations');
                 }
             });
     }
@@ -1103,8 +1067,41 @@ $visa_types = getAllVisaTypes($conn);
     }
     </script>
 
-    
+    <!-- Add this JavaScript function to handle the visa type selection -->
+    <script>
+    function handleVisaTypeChange(selectElement) {
+        // Show loading spinner
+        const viewSection = document.querySelector('.data-view-section');
+        viewSection.innerHTML += `
+            <div class="modal-loading" id="queueDataLoading">
+                <div class="modal-spinner"></div>
+                <div class="modal-loading-text">Loading queue data...</div>
+            </div>
+        `;
+        
+        // Stay on current tab
+        const currentTab = document.querySelector('.tab-content[style*="block"]').id;
+        
+        // Add tab to URL
+        const url = new URL(window.location.href);
+        url.searchParams.set('visa_type', selectElement.value);
+        url.searchParams.set('tab', currentTab);
+        
+        // Navigate to new URL
+        window.location.href = url.toString();
+    }
 
+    // Function to handle initial load and tab selection
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get tab from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabParam = urlParams.get('tab');
+        
+        if (tabParam) {
+            switchTab(tabParam);
+        }
+    });
+    </script>
 
 </body>
 </html> 

@@ -377,6 +377,28 @@ input[type="file"]:hover {
     border-radius: 12px;
     margin-top: 2rem;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    position: relative;
+    min-height: 200px;
+}
+
+.data-view-section .modal-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    z-index: 10;
+}
+
+/* Hide loading initially */
+#queueDataLoading {
+    display: none;
+}
+
+/* Show loading when data is being fetched */
+.loading #queueDataLoading {
+    display: flex;
 }
 
 .queue-table {
@@ -2302,7 +2324,7 @@ select:focus option:disabled {
     flex-direction: column;
     align-items: center;
     padding: 0.75rem;
-    background: #f1f5f9;
+    background: #f8fafc;
     border-radius: 6px;
     transition: transform 0.2s ease;
 }
@@ -2512,61 +2534,45 @@ select:focus option:disabled {
 }
 
 .planning-message {
-    text-align: left;
-    padding: 2rem;
-    background: #f8fafc;
-    border-radius: 12px;
-    border: 1px solid #e2e8f0;
-}
-
-.planning-message .stat-label {
-    font-size: 1.3em;
-    color: #475569;
-    font-weight: 600;
-    margin-bottom: 1.5rem;
-}
-
-.fy-summary {
-    background: #fff;
+    background: #fff7ed;
     padding: 1.5rem;
     border-radius: 8px;
-    margin-bottom: 1.5rem;
+    margin: 1rem 0;
+    text-align: left;
 }
 
-.fy-numbers {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-    margin-bottom: 1rem;
+.planning-message .detail-item {
+    display: block;  /* Changed from flex to block */
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #fed7aa;
 }
 
-.number-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 1rem;
-    background: #f1f5f9;
-    border-radius: 6px;
+.planning-message .detail-item .label {
+    display: block;
+    font-weight: 600;
+    color: #9a3412;
+    margin-bottom: 0.25rem;
 }
 
-.number-item .number {
-    font-size: 1.5em;
+.planning-message .detail-item .value {
+    display: block;
+    font-size: 1.2rem;
     font-weight: 700;
-    color: #475569;
+    color: #1e293b;
+    margin-bottom: 0.25rem;
 }
 
-.number-item .label {
-    font-size: 0.9em;
-    color: #64748b;
-    text-align: center;
-    margin-top: 0.5rem;
+.next-fy-explanation ul {
+    margin: 0.5rem 0 0 1.25rem;
+    list-style-type: disc;
 }
 
-.fy-explanation {
-    color: #475569;
-    line-height: 1.6;
-    margin-top: 1rem;
-    font-size: 1.1em;
+.next-fy-explanation li {
+    margin-bottom: 0.5rem;
+}
+
+.next-fy-explanation li:last-child {
+    margin-bottom: 0;
 }
 
 .planning-tips {
@@ -3004,53 +3010,33 @@ select:focus option:disabled {
 
 /* WhatsApp Share Button Styles */
 .share-section {
-    margin-top: 2rem;
-    padding-top: 1rem;
-    border-top: 1px solid #e2e8f0;
-    text-align: center;
+    margin-top: 1rem;
+    padding: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .whatsapp-share-btn {
-    display: inline-flex;
+    display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
-    background: #25D366;
+    background-color: #25D366;
     color: white;
     padding: 0.75rem 1.5rem;
     border-radius: 8px;
     text-decoration: none;
     font-weight: 600;
-    transition: all 0.3s ease;
+    transition: background-color 0.2s ease;
 }
 
 .whatsapp-share-btn:hover {
-    background: #128C7E;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 6px rgba(37, 211, 102, 0.2);
+    background-color: #128C7E;
 }
 
 .whatsapp-icon {
     width: 24px;
     height: 24px;
     fill: currentColor;
-}
-
-/* Adjust for celebration mode */
-.celebration-mode .whatsapp-share-btn {
-    background: #15803d;
-}
-
-.celebration-mode .whatsapp-share-btn:hover {
-    background: #166534;
-}
-
-/* Adjust for overdue alert */
-.overdue-alert .whatsapp-share-btn {
-    background: #dc2626;
-}
-
-.overdue-alert .whatsapp-share-btn:hover {
-    background: #b91c1c;
 }
 
 /* Modal Styles */
@@ -3205,4 +3191,538 @@ select:focus option:disabled {
 
 .save-status.error {
     color: #dc2626;
+}
+
+/* Add these styles to standardize buttons and visa type management */
+.visa-management {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 2rem;
+    margin-top: 1rem;
+}
+
+.add-visa-form {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.add-visa-form .form-group {
+    margin-bottom: 1.5rem;
+}
+
+.add-visa-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.add-visa-form input[type="text"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: all 0.2s;
+}
+
+.add-visa-form input[type="text"]:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    outline: none;
+}
+
+/* Standardized button styles */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    font-size: 1rem;
+}
+
+.btn-primary {
+    background: #3b82f6;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2563eb;
+}
+
+.btn-danger {
+    background: #ef4444;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
+.btn-secondary {
+    background: #6b7280;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #4b5563;
+}
+
+/* Visa types table styling */
+.visa-types-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.visa-types-table th {
+    background: #f8fafc;
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.visa-types-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.visa-types-table tr:last-child td {
+    border-bottom: none;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.action-buttons button {
+    padding: 0.5rem 1rem;
+}
+
+/* Modal loading state */
+.modal-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    gap: 1rem;
+}
+
+.modal-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e2e8f0;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.modal-loading-text {
+    color: #64748b;
+    font-size: 1.1rem;
+}
+
+/* Hide content while loading */
+.modal-content.loading .allocation-section {
+    display: none;
+}
+
+.modal-content.loading .modal-loading {
+    display: flex;
+}
+
+/* Add these styles for the Movement column */
+.queue-table td.positive {
+    color: #059669;
+    font-weight: 600;
+}
+
+.queue-table td.negative {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.queue-table td.neutral {
+    color: #64748b;
+    font-weight: 600;
+}
+
+.prediction-dates .date-item {
+    padding: 1rem;
+    border-radius: 6px;
+    background: #f8fafc;
+    margin-bottom: 0.5rem;
+}
+
+.prediction-dates .date-item.latest {
+    background: #fee2e2;
+    border-left: 4px solid #ef4444;
+}
+
+.prediction-dates .date-item.eighty {
+    background: #e0f2fe;
+    border-left: 4px solid #0ea5e9;
+}
+
+.prediction-dates .date-item.seventy {
+    background: #dcfce7;
+    border-left: 4px solid #22c55e;
+}
+
+.prediction-dates .date-item .label {
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.prediction-dates .explanation {
+    display: block;
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+.step-item .explanation {
+    display: block;
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+    font-style: italic;
+    line-height: 1.4;
+}
+
+.overdue-message {
+    background: #fff5f5;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+}
+
+.overdue-message .prediction-details {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: white;
+    border-radius: 6px;
+}
+
+.overdue-message .detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem;
+    border-bottom: 1px solid #fee2e2;
+}
+
+.overdue-message .detail-item:last-child {
+    border-bottom: none;
+}
+
+.overdue-message .action-recommendation {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #fee2e2;
+}
+
+.overdue-message .contact-info {
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.overdue-message .contact-link {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    background: #dc2626;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.overdue-message .contact-link:hover {
+    background: #b91c1c;
+    transform: translateY(-2px);
+}
+
+.spacer {
+    width: 100%;
+    height: 2rem;
+    grid-column: 1 / -1;  /* Spans all columns */
+}
+
+.calculation-details {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.calculation-details h4 {
+    color: #1e293b;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.calculation-details .step-details {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.step-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.step-item:last-child {
+    border-bottom: none;
+}
+
+.celebration-mode .calculation-details .step-details {
+    background: white;
+}
+
+.step-item .label {
+    color: #475569;
+    font-weight: 500;
+}
+
+.step-item .value {
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.next-fy-explanation {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: #fffbeb;
+    border-left: 4px solid #d97706;
+    border-radius: 0 6px 6px 0;
+    color: #92400e;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.planning-message .detail-item .explanation {
+    display: block;
+    font-size: 0.9rem;
+    color: #78716c;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+/* Overdue Alert Card Styling */
+.overdue-alert {
+    border: 2px solid #ff4444;
+    background-color: #fff5f5;
+}
+
+.overdue-alert .stat-header h3 {
+    color: #cc0000;
+    font-size: 1.4em;
+    margin-bottom: 1rem;
+}
+
+.overdue-message {
+    padding: 1.5rem;
+}
+
+.overdue-message .stat-label {
+    color: #333;
+    font-size: 1.1em;
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+}
+
+.action-recommendation {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.urgent-text {
+    color: #cc0000;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.action-steps {
+    padding-left: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.action-steps li {
+    margin-bottom: 0.8rem;
+    color: #444;
+    line-height: 1.4;
+}
+
+.important-note {
+    background-color: #fff9e6;
+    padding: 1rem;
+    border-left: 4px solid #ffd700;
+    margin: 1rem 0;
+    font-size: 0.95em;
+    color: #555;
+}
+
+.processing-times-link {
+    color: #0066cc;
+    text-decoration: underline;
+    font-weight: 500;
+}
+
+.processing-times-link:hover {
+    color: #004499;
+}
+
+.contact-button {
+    display: inline-block;
+    background-color: #e60000;
+    color: #ffffff;
+    padding: 12px 24px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    margin-top: 1rem;
+    transition: background-color 0.3s ease;
+}
+
+.contact-button:hover {
+    background-color: #cc0000;
+    text-decoration: none;
+}
+
+.prediction-details .detail-item {
+    background-color: #fff;
+    padding: 1rem;
+    margin-bottom: 0.8rem;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+}
+
+.prediction-details .label {
+    color: #666;
+    font-size: 0.9em;
+}
+
+.prediction-details .value {
+    color: #333;
+    font-weight: 600;
+    font-size: 1.1em;
+}
+
+.imminent-grant {
+    font-size: 1.4em;
+    color: #15803d;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    animation: pulse 2s infinite;
+}
+
+.grant-explanation {
+    color: #166534;
+    line-height: 1.6;
+    font-size: 1.1em;
+    background: #f0fdf4;
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid #86efac;
+    margin-top: 0.5rem;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* New Planning Message Styles */
+.planning-header {
+    font-size: 1.4em;
+    color: #1e40af;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.planning-explanation {
+    font-size: 1.1em;
+    line-height: 1.6;
+    color: #1e293b;
+    margin-bottom: 1.5rem;
+}
+
+.visa-cap-explanation {
+    background: #f0f9ff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+    border: 1px solid #bae6fd;
+}
+
+.visa-cap-explanation h4 {
+    color: #0369a1;
+    font-size: 1.1em;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.visa-cap-explanation ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+.visa-cap-explanation li {
+    padding: 0.5rem 0;
+    padding-left: 1.5rem;
+    position: relative;
+    color: #334155;
+    line-height: 1.5;
+}
+
+.visa-cap-explanation li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #0369a1;
+    font-weight: bold;
+}
+
+.next-fy-explanation h4 {
+    color: #92400e;
+    font-size: 1.1em;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.next-fy-explanation p {
+    margin-bottom: 1rem;
+    line-height: 1.6;
+}
+
+.next-fy-explanation ul {
+    margin-left: 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.next-fy-explanation li {
+    color: #92400e;
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
 }
