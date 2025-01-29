@@ -1869,7 +1869,7 @@ function getAgeMessage($interval) {
         18 => "In 18 months, the Mars Rover traveled over 12 miles on the Red Planet! 🚀 Your visa application has been waiting long enough to go sightseeing on Mars.",
         21 => "Did you know that it took 21 months to build the Eiffel Tower? 🇫🇷 If your visa were a landmark, it would be halfway done!",
         24 => "You could have completed 4 full university semesters in the time you've been waiting! 🎓",
-        27 => "It takes 27 months to train an astronaut for a mission to space. 🧑‍🚀 Your visa application is as old as a future space explorer’s training!",
+        27 => "It takes 27 months to train an astronaut for a mission to space. 🧑‍🚀 Your visa application is as old as a future space explorer's training!",
         30 => "A blue whale calf doubles in size within its first 30 months! 🐋 Your visa application has been waiting as long as a whale has been growing massive.",
         33 => "At 33 months, your application is older than the average time it takes for an elephant to give birth! 🐘",
         36 => "Your visa application is as old as the longest championship chess match ever played (36 months)! ♟️",
@@ -1903,6 +1903,70 @@ function safeExplode($delimiter, $string) {
         return [];
     }
     return explode($delimiter, $string);
+}
+
+/**
+ * Get Visa Queue Data
+ * 
+ * @description Retrieves the queue history for a specific visa type
+ * @param int $visa_type_id The ID of the visa type to get queue data for
+ * @return array|false Queue data including lodgement history and updates
+ */
+function getVisaQueueData($visa_type_id) {
+    global $conn;
+    
+    try {
+        // First get the visa type details
+        $visa_query = "SELECT visa_type FROM visa_types WHERE id = ?";
+        $stmt = mysqli_prepare($conn, $visa_query);
+        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $visa_result = mysqli_stmt_get_result($stmt);
+        $visa_type = mysqli_fetch_assoc($visa_result);
+
+        if (!$visa_type) {
+            return false;
+        }
+
+        // Get all lodgement months and their updates
+        $query = "
+            SELECT 
+                vl.id,
+                vl.lodged_month,
+                vl.first_count_volume as first_count,
+                JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'update_month', vqu.update_month,
+                        'queue_count', vqu.queue_count
+                    )
+                ) as updates
+            FROM visa_lodgements vl
+            LEFT JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+            WHERE vl.visa_type_id = ?
+            GROUP BY vl.id, vl.lodged_month, vl.first_count_volume
+            ORDER BY vl.lodged_month DESC
+        ";
+
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+
+        $lodgements = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $row['updates'] = json_decode($row['updates'], true);
+            $lodgements[] = $row;
+        }
+
+        return [
+            'visa_type' => $visa_type['visa_type'],
+            'lodgements' => $lodgements
+        ];
+
+    } catch (Exception $e) {
+        error_log("Error in getVisaQueueData: " . $e->getMessage());
+        return false;
+    }
 }
 
 // Continue with other core functions...

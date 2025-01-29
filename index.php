@@ -436,11 +436,14 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
     <!-- Add this before </body> -->
     <footer class="footer">
         <div class="footer-content">
-            <div class="footer-links">
-                <a href="admin.php" class="admin-link">Admin Dashboard</a>
-            </div>
             <div class="footer-attribution">
                 Designed by <a href="http://www.nextzero.co.za" target="_blank" rel="noopener noreferrer">BinaryBushbaby</a> © 2025
+            </div>
+            <div class="disclaimer">
+                <p><strong>Legal Disclaimer:</strong> This website provides estimates based on historical visa processing data. These predictions are for guidance only and should not be considered official or guaranteed processing times.</p>
+            </div>
+            <div class="footer-links">
+                <a href="admin.php" class="admin-link">Admin Dashboard</a>
             </div>
         </div>
     </footer>

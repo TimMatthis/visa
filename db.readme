@@ -1,0 +1,165 @@
+
+
+
+
+describe visa_allocations
+{
+	"table": "COLUMNS",
+	"rows":
+	[
+		{
+			"Field": "id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "PRI",
+			"Default": null,
+			"Extra": "auto_increment"
+		},
+		{
+			"Field": "visa_type_id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "MUL",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "financial_year_start",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "allocation_amount",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "created_at",
+			"Type": "timestamp",
+			"Null": "YES",
+			"Key": "",
+			"Default": "current_timestamp()",
+			"Extra": ""
+		},
+		{
+			"Field": "updated_at",
+			"Type": "timestamp",
+			"Null": "YES",
+			"Key": "",
+			"Default": "current_timestamp()",
+			"Extra": "on update current_timestamp()"
+		}
+	]
+}
+
+describe visa_lodgements
+{
+	"table": "COLUMNS",
+	"rows":
+	[
+		{
+			"Field": "id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "PRI",
+			"Default": null,
+			"Extra": "auto_increment"
+		},
+		{
+			"Field": "lodged_month",
+			"Type": "date",
+			"Null": "NO",
+			"Key": "",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "visa_type_id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "MUL",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "first_count_volume",
+			"Type": "int(11)",
+			"Null": "YES",
+			"Key": "",
+			"Default": null,
+			"Extra": ""
+		}
+	]
+}
+
+describe visa_queue_updates
+
+{
+	"table": "COLUMNS",
+	"rows":
+	[
+		{
+			"Field": "id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "PRI",
+			"Default": null,
+			"Extra": "auto_increment"
+		},
+		{
+			"Field": "lodged_month_id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "MUL",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "update_month",
+			"Type": "date",
+			"Null": "NO",
+			"Key": "",
+			"Default": null,
+			"Extra": ""
+		},
+		{
+			"Field": "queue_count",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "",
+			"Default": null,
+			"Extra": ""
+		}
+	]
+}
+
+describe visa_types
+
+{
+	"table": "COLUMNS",
+	"rows":
+	[
+		{
+			"Field": "id",
+			"Type": "int(11)",
+			"Null": "NO",
+			"Key": "PRI",
+			"Default": null,
+			"Extra": "auto_increment"
+		},
+		{
+			"Field": "visa_type",
+			"Type": "varchar(10)",
+			"Null": "NO",
+			"Key": "UNI",
+			"Default": null,
+			"Extra": ""
+		}
+	]
+}

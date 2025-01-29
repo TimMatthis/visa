@@ -12,57 +12,70 @@ ob_clean();
 header('Content-Type: application/json');
 
 if (!isset($_GET['visa_type']) || !isset($_GET['lodged_month'])) {
-    http_response_code(400);
-    echo json_encode(['status' => 'error', 'message' => 'Missing required parameters']);
+    echo json_encode([
+        'status' => 'error',
+        'message' => 'Missing required parameters'
+    ]);
     exit;
 }
 
+$visa_type_id = $_GET['visa_type'];
+$lodged_month = $_GET['lodged_month'];
+
 try {
-    $visa_type = $_GET['visa_type'];
-    $lodged_month = $_GET['lodged_month'];
+    // Get the lodgement ID first
+    $query = "
+        SELECT id 
+        FROM visa_lodgements 
+        WHERE visa_type_id = ? 
+        AND lodged_month = ?
+    ";
     
-    // First get the visa type ID from the visa_types table
-    $sql = "SELECT id FROM visa_types WHERE id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param('i', $visa_type);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $visa_type_row = $result->fetch_assoc();
-    
-    if (!$visa_type_row) {
-        throw new Exception('Invalid visa type');
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, "is", $visa_type_id, $lodged_month);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $lodgement = mysqli_fetch_assoc($result);
+
+    if (!$lodgement) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'No data found for this lodgement month'
+        ]);
+        exit;
     }
-    $visa_type_id = $visa_type_row['id'];
+
+    // Get all updates for this lodgement
+    $query = "
+        SELECT 
+            update_month,
+            queue_count
+        FROM visa_queue_updates
+        WHERE lodged_month_id = ?
+        ORDER BY update_month ASC
+    ";
     
-    // Now get the history data using the correct column name
-    $sql = "SELECT update_month, queue_count 
-            FROM visa_queue_updates 
-            WHERE visa_type_id = ? 
-            AND lodged_month = ?
-            ORDER BY update_month ASC";
-            
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param('is', $visa_type_id, $lodged_month);
-    $stmt->execute();
-    
-    $result = $stmt->get_result();
-    $history = [];
-    while ($row = $result->fetch_assoc()) {
-        $history[] = $row;
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, "i", $lodgement['id']);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+
+    $updates = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $updates[] = [
+            'update_month' => $row['update_month'],
+            'queue_count' => intval($row['queue_count'])
+        ];
     }
-    
-    // Ensure we always return an array, even if empty
+
     echo json_encode([
         'status' => 'success',
-        'data' => $history
+        'data' => $updates
     ]);
-    exit;
-    
+
 } catch (Exception $e) {
-    http_response_code(500);
     echo json_encode([
         'status' => 'error',
-        'message' => 'Server error: ' . $e->getMessage()
+        'message' => 'Database error: ' . $e->getMessage()
     ]);
-    exit;
 } 
