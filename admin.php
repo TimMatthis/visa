@@ -465,7 +465,7 @@ $visa_types = getAllVisaTypes($conn);
                                            maxlength="10" 
                                            pattern="[0-9]+" 
                                            placeholder="e.g. 189">
-                                    <button type="submit" name="add_visa_type" class="edit-btn">Add Visa Type</button>
+                                    <button type="submit" name="add_visa_type" class="admin-link">Add Visa Type</button>
                                 </div>
                             </div>
                         </form>
@@ -499,11 +499,23 @@ $visa_types = getAllVisaTypes($conn);
                                     <td>Subclass <?php echo htmlspecialchars($type['visa_type']); ?></td>
                                     <td>
                                         <?php 
-                                        $current_fy = date('Y');
+                                        $current_fy = getCurrentFinancialYearDates()['fy_start_year']; // Get current FY start year
                                         $current_allocation = array_filter($allocations, function($a) use ($current_fy) {
                                             return $a['financial_year_start'] == $current_fy;
                                         });
-                                        echo !empty($current_allocation) ? number_format(current($current_allocation)['allocation_amount']) : 'Not set';
+                                        
+                                        if (!empty($current_allocation)) {
+                                            echo number_format(current($current_allocation)['allocation_amount']);
+                                        } else {
+                                            // Check for the most recent allocation
+                                            usort($allocations, function($a, $b) {
+                                                return $b['financial_year_start'] - $a['financial_year_start'];
+                                            });
+                                            
+                                            echo !empty($allocations) 
+                                                ? number_format($allocations[0]['allocation_amount']) . ' (FY' . $allocations[0]['financial_year_start'] . '-' . ($allocations[0]['financial_year_start'] + 1) % 100 . ')'
+                                                : 'Not set';
+                                        }
                                         ?>
                                     </td>
                                     <td>
@@ -522,12 +534,12 @@ $visa_types = getAllVisaTypes($conn);
                                     <td class="action-buttons">
                                         <button type="button" 
                                                 onclick="showAllocationModal(<?php echo $type['id']; ?>, '<?php echo $type['visa_type']; ?>')" 
-                                                class="edit-btn">
+                                                class="admin-link">
                                             Edit Allocation
                                         </button>
                                         <form action="" method="POST" style="display: inline;">
                                             <input type="hidden" name="id" value="<?php echo $type['id']; ?>">
-                                            <button type="submit" name="delete_visa_type" class="delete-btn" 
+                                            <button type="submit" name="delete_visa_type" class="admin-link" 
                                                     onclick="return confirm('Are you sure you want to delete this visa type?')">
                                                 Delete
                                             </button>
@@ -582,7 +594,7 @@ $visa_types = getAllVisaTypes($conn);
                 <!-- Add visa type tabs -->
                 <div class="visa-tabs">
                     <?php foreach ($visa_types as $index => $type): ?>
-                        <button class="visa-tab-btn <?php echo $index === 0 ? 'active' : ''; ?>"
+                        <button class="history-btn <?php echo $index === 0 ? 'active' : ''; ?>"
                                 onclick="openVisaTab(event, 'visa_<?php echo $type['id']; ?>')">
                             Subclass <?php echo htmlspecialchars($type['visa_type']); ?>
                         </button>
@@ -809,55 +821,252 @@ $visa_types = getAllVisaTypes($conn);
 
  
 
-    <!-- Add this modal HTML before the closing body tag -->
+    <!-- Edit Visa Allocations Modal -->
     <div id="allocationModal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
-            <h3>Edit Visa Allocation</h3>
-            <form id="allocationForm" method="POST" class="allocation-form">
-                <input type="hidden" name="visa_type_id" id="modalVisaTypeId">
-                <div class="form-group">
-                    <label>Visa Subclass: <span id="modalVisaType"></span></label>
+            <div class="visa-header">
+                <h3>Visa Subclass <span id="modalVisaType"></span> Allocations</h3>
+            </div>
+
+            <!-- Current Allocations Section -->
+            <div class="allocation-section current-allocations">
+                <h4>Current Allocations</h4>
+                <div id="existingAllocations" class="allocations-list">
+                    <!-- Populated by JavaScript -->
                 </div>
-                <div class="form-group">
-                    <label for="financial_year">Financial Year:</label>
-                    <select name="financial_year" id="financial_year" required>
-                        <?php 
-                        $current_year = date('Y');
-                        for($i = $current_year - 1; $i <= $current_year + 1; $i++) {
-                            echo "<option value='$i'>$i-" . ($i + 1) . "</option>";
-                        }
-                        ?>
-                    </select>
+            </div>
+
+            <!-- Add New Allocation Section -->
+            <div class="allocation-section new-allocations">
+                <h4>Add/Update Allocation</h4>
+                <div id="availableYears" class="allocations-list">
+                    <!-- Populated by JavaScript -->
                 </div>
-                <div class="form-group">
-                    <label for="allocation_amount">Allocation Amount:</label>
-                    <input type="number" name="allocation_amount" id="allocation_amount" required min="0">
-                </div>
-                <button type="submit" name="update_allocation" class="primary-btn">Save Allocation</button>
-            </form>
+            </div>
         </div>
     </div>
 
-    <!-- Add this JavaScript before the closing body tag -->
+    <!-- Add this CSS -->
+    <style>
+    .allocation-section {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background: #f8fafc;
+        border-radius: 8px;
+    }
+
+    .allocations-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .allocation-row {
+        display: grid;
+        grid-template-columns: 200px 1fr auto;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.5rem;
+        border-radius: 4px;
+        background: white;
+    }
+
+    .allocation-row.existing {
+        background: #f0f9ff;
+        border-left: 3px solid #3b82f6;
+    }
+
+    .year-label {
+        font-weight: 500;
+        color: #1e293b;
+    }
+
+    .allocation-input {
+        width: 150px;
+        padding: 0.5rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+    }
+
+    .save-btn {
+        padding: 0.5rem 1rem;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .save-btn:hover {
+        background: #2563eb;
+    }
+
+    .save-btn:disabled {
+        background: #94a3b8;
+        cursor: not-allowed;
+    }
+
+    .save-status {
+        margin-left: 1rem;
+        font-size: 0.9rem;
+    }
+
+    .save-status.success {
+        color: #059669;
+    }
+
+    .save-status.error {
+        color: #dc2626;
+    }
+    </style>
+
+    <!-- Update the JavaScript -->
     <script>
-    function showAllocationModal(visaTypeId, visaType) {
+    let visaTypeId = null;
+
+    function showAllocationModal(typeId, visaType) {
+        visaTypeId = typeId;
         const modal = document.getElementById('allocationModal');
-        document.getElementById('modalVisaTypeId').value = visaTypeId;
         document.getElementById('modalVisaType').textContent = visaType;
         
-        // Get current allocation if exists
-        fetch(`get_allocation.php?visa_type_id=${visaTypeId}&year=${document.getElementById('financial_year').value}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success' && data.allocation) {
-                    document.getElementById('allocation_amount').value = data.allocation.allocation_amount;
-                } else {
-                    document.getElementById('allocation_amount').value = '';
-                }
-            });
+        // Fetch existing allocations
+        fetchAllocations();
         
         modal.style.display = "block";
+    }
+
+    function fetchAllocations() {
+        fetch(`get_allocations.php?visa_type_id=${visaTypeId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    populateAllocations(data.allocations);
+                    populateAvailableYears(data.allocations);
+                }
+            });
+    }
+
+    function populateAllocations(allocations) {
+        const container = document.getElementById('existingAllocations');
+        container.innerHTML = '';
+
+        // Sort allocations by year descending
+        allocations.sort((a, b) => b.financial_year_start - a.financial_year_start);
+
+        allocations.forEach(allocation => {
+            const row = document.createElement('div');
+            row.className = 'allocation-row existing';
+            row.innerHTML = `
+                <span class="year-label">FY${allocation.financial_year_start}-${(allocation.financial_year_start + 1) % 100}</span>
+                <input type="number" 
+                       class="allocation-input"
+                       value="${allocation.allocation_amount}"
+                       onchange="enableSaveButton(this)"
+                       data-original="${allocation.allocation_amount}"
+                       data-year="${allocation.financial_year_start}">
+                <div>
+                    <button class="save-btn" 
+                            onclick="saveAllocation(this, ${allocation.financial_year_start})" 
+                            disabled>
+                        Save
+                    </button>
+                    <span class="save-status"></span>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    }
+
+    function populateAvailableYears(existingAllocations) {
+        const container = document.getElementById('availableYears');
+        container.innerHTML = '';
+        
+        const currentYear = new Date().getFullYear();
+        const existingYears = existingAllocations.map(a => a.financial_year_start);
+        
+        // Show last 5 financial years
+        for (let i = 0; i < 5; i++) {
+            const year = currentYear - i;
+            if (!existingYears.includes(year)) {
+                const row = document.createElement('div');
+                row.className = 'allocation-row';
+                row.innerHTML = `
+                    <span class="year-label">FY${year}-${(year + 1) % 100}</span>
+                    <input type="number" 
+                           class="allocation-input"
+                           placeholder="Enter allocation"
+                           onchange="enableSaveButton(this)"
+                           data-year="${year}">
+                    <div>
+                        <button class="save-btn" 
+                                onclick="saveAllocation(this, ${year})" 
+                                disabled>
+                            Save
+                        </button>
+                        <span class="save-status"></span>
+                    </div>
+                `;
+                container.appendChild(row);
+            }
+        }
+    }
+
+    function enableSaveButton(input) {
+        const btn = input.parentElement.querySelector('.save-btn');
+        const originalValue = input.dataset.original;
+        
+        if (originalValue) {
+            // For existing allocations
+            btn.disabled = input.value === originalValue;
+        } else {
+            // For new allocations
+            btn.disabled = !input.value;
+        }
+    }
+
+    function saveAllocation(btn, year) {
+        const row = btn.closest('.allocation-row');
+        const input = row.querySelector('.allocation-input');
+        const statusSpan = row.querySelector('.save-status');
+        
+        btn.disabled = true;
+        statusSpan.className = 'save-status';
+        statusSpan.textContent = 'Saving...';
+
+        fetch('save_allocation.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                visa_type_id: visaTypeId,
+                year: year,
+                amount: parseInt(input.value)
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                statusSpan.className = 'save-status success';
+                statusSpan.textContent = '✓ Saved';
+                input.dataset.original = input.value;
+                
+                // Refresh allocations after short delay
+                setTimeout(() => {
+                    fetchAllocations();
+                    statusSpan.textContent = '';
+                }, 1500);
+            } else {
+                throw new Error(data.message || 'Save failed');
+            }
+        })
+        .catch(error => {
+            statusSpan.className = 'save-status error';
+            statusSpan.textContent = '✗ ' + error.message;
+            btn.disabled = false;
+        });
     }
 
     // Close modal functionality

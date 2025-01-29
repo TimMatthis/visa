@@ -867,3 +867,102 @@ Stack trace:
     [admin] => 1
 )
 
+[29-Jan-2025 05:55:18 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 05:55:18 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 05:57:01 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 05:57:01 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 05:58:46 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 05:58:46 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:05:11 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:05:11 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:05:34 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:05:34 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:05:34 UTC] POST request received: Array
+(
+    [visa_type_id] => 13
+    [financial_year] => 2024
+    [allocation_amount] => 15000
+    [update_allocation] => 
+)
+
+[29-Jan-2025 06:05:34 UTC] Session data before processing POST: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:05:34 UTC] PHP Fatal error:  Uncaught Error: Call to undefined function updateVisaAllocation() in C:\www\visaqueue\admin.php:113
+Stack trace:
+#0 {main}
+  thrown in C:\www\visaqueue\admin.php on line 113
+[29-Jan-2025 06:05:45 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:05:45 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:07:33 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:07:33 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:08:40 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:08:40 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:13:41 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:13:41 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:32:39 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:32:39 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:33:27 UTC] Session ID at start: 20a6e358710fe6a805dc8484325be79d
+[29-Jan-2025 06:33:27 UTC] Session data at start: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:33:27 UTC] POST request received: Array
+(
+    [id] => 13
+    [delete_visa_type] => 
+)
+
+[29-Jan-2025 06:33:27 UTC] Session data before processing POST: Array
+(
+    [admin] => 1
+)
+
+[29-Jan-2025 06:33:27 UTC] Session data at end: Array
+(
+    [admin] => 1
+)
+
