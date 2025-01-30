@@ -134,9 +134,8 @@ function generateShareMessage($prediction, $application_age = null, $months_away
     
     return urlencode($shareMessage);
 }
-
-// Generate the Visas on Hand card
 ?>
+
 <div class="stats-grid">
     <?php if (isset($prediction) && !isset($prediction['error'])): ?>
         <?php if (($prediction['is_overdue'] ?? false)): ?>
@@ -182,8 +181,8 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                     <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age); ?>" 
                        target="_blank" 
                        class="whatsapp-share-btn">
-                        <svg class="whatsapp-icon" viewBox="0 0 24 24">
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                        <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.49 15.59 3.34 17.09L2.1 21.9L7 20.66C8.47 21.47 10.17 21.93 12 21.93C17.52 21.93 22 17.44 22 11.93C22 6.42 17.52 2 12 2ZM8.53 15.92L8.23 15.75C6.98 15.08 6.19 14.17 5.85 13.04C5.5 11.91 5.6 10.65 6.12 9.58C6.65 8.51 7.57 7.69 8.72 7.29C9.87 6.89 11.11 6.94 12.23 7.43C13.34 7.92 14.24 8.82 14.73 9.94C15.22 11.06 15.27 12.3 14.87 13.45C14.47 14.6 13.66 15.52 12.59 16.05C11.52 16.58 10.26 16.67 9.13 16.33L8.91 16.25L6.11 17.13L7 14.38L8.53 15.92Z"/>
                         </svg>
                         Share on WhatsApp
                     </a>
@@ -266,8 +265,8 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                             <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction); ?>" 
                                target="_blank" 
                                class="whatsapp-share-btn">
-                                <svg class="whatsapp-icon" viewBox="0 0 24 24">
-                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.49 15.59 3.34 17.09L2.1 21.9L7 20.66C8.47 21.47 10.17 21.93 12 21.93C17.52 21.93 22 17.44 22 11.93C22 6.42 17.52 2 12 2ZM8.53 15.92L8.23 15.75C6.98 15.08 6.19 14.17 5.85 13.04C5.5 11.91 5.6 10.65 6.12 9.58C6.65 8.51 7.57 7.69 8.72 7.29C9.87 6.89 11.11 6.94 12.23 7.43C13.34 7.92 14.24 8.82 14.73 9.94C15.22 11.06 15.27 12.3 14.87 13.45C14.47 14.6 13.66 15.52 12.59 16.05C11.52 16.58 10.26 16.67 9.13 16.33L8.91 16.25L6.11 17.13L7 14.38L8.53 15.92Z"/>
                                 </svg>
                                 Share on WhatsApp
                             </a>
@@ -344,8 +343,8 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                     <?php else: ?>
                         <!-- More than 3 months standard message -->
                         <div class="confidence-message">
-                        <div class="stat-number">On track for this year!</div>
-                        <divclass="stat-label">We're confident your visa will be granted in the Financial Year before the Allocation Cap is reached.</div>
+                            <div class="stat-number">On track for this year!</div>
+                            <div class="stat-label">We're confident your visa will be granted in the Financial Year before the Allocation Cap is reached.</div>
                             <div class="percentile-dates">
                                 <div class="percentile-date recommended">
                                     <div class="date-label">Likely Grant Date (90th percentile)</div>
@@ -366,22 +365,23 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                                 <p>Places available: <?php echo number_format($prediction['places_remaining']); ?></p>
                                 <p>Processing rate: <?php echo number_format($prediction['weighted_average']); ?> per month</p>
                             </div>
-                        <div class="preparation-tips">
-                            <p>📅 Keep monitoring processing times</p>
-                            <p>📋 Ensure all your documents are ready</p>
-                            <p>🎯 Start preliminary planning</p>
+                            <div class="preparation-tips">
+                                <p>📅 Keep monitoring processing times</p>
+                                <p>📋 Ensure all your documents are ready</p>
+                                <p>🎯 Start preliminary planning</p>
+                            </div>
                         </div>
-                    </div>
-                <?php endif; ?>
-            </div>
-            
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Share to WhatsApp and Calculation Details should be inside the main card -->
                 <?php if (!($prediction['next_fy'] ?? false)): ?>
                 <div class="share-section">
                     <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction); ?>" 
                        target="_blank" 
                        class="whatsapp-share-btn">
-                        <svg class="whatsapp-icon" viewBox="0 0 24 24">
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                        <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.49 15.59 3.34 17.09L2.1 21.9L7 20.66C8.47 21.47 10.17 21.93 12 21.93C17.52 21.93 22 17.44 22 11.93C22 6.42 17.52 2 12 2ZM8.53 15.92L8.23 15.75C6.98 15.08 6.19 14.17 5.85 13.04C5.5 11.91 5.6 10.65 6.12 9.58C6.65 8.51 7.57 7.69 8.72 7.29C9.87 6.89 11.11 6.94 12.23 7.43C13.34 7.92 14.24 8.82 14.73 9.94C15.22 11.06 15.27 12.3 14.87 13.45C14.47 14.6 13.66 15.52 12.59 16.05C11.52 16.58 10.26 16.67 9.13 16.33L8.91 16.25L6.11 17.13L7 14.38L8.53 15.92Z"/>
                         </svg>
                         Share on WhatsApp
                     </a>
@@ -430,12 +430,13 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                         </div>
                     </div>
                 </div>
-            <?php endif; ?>
-        </div>
-    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+    
 
-        <!-- Current Visa Queue card -->
-    <div class="stat-card">
+    <!-- Current Visa Queue card -->
+    <div class="stat-card one-third-card">
         <div class="stat-header">
             <h3>Current Visa Queue</h3>
             <span class="stat-date">As of <?php echo date('j F Y', strtotime($debug_data['latest_update'])); ?></span>
@@ -449,7 +450,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         </div>
     </div>
 
-    <div class="stat-card processing-history">
+    <div class="stat-card processing-history one-third-card">
         <div class="stat-header">
             <h3>Monthly Processing History</h3>
             <span class="stat-date">Last <?php echo count($monthly_processing); ?> months</span>
@@ -470,8 +471,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             <div class="stat-note">Showing monthly visa processing totals</div>
         </div>
     </div>
-
-    <div class="stat-card average-processing-rate">
+    <div class="stat-card average-processing-rate one-third-card">
         <div class="stat-header">
             <h3>Monthly Average Processing Rate</h3>
             <span class="stat-date">Last <?php echo count($monthly_averages); ?> months</span>
@@ -493,8 +493,11 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             <div class="stat-note">Showing running average processing rate</div>
         </div>
     </div>
+               
 
-    <div class="stat-card weighted-average-rate">
+  
+
+    <div class="stat-card weighted-average-rate one-third-card">
         <div class="stat-header">
             <h3>3-Month Weighted Average Processing Rate</h3>
         </div>
@@ -507,7 +510,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         </div>
     </div>
 
-    <div class="stat-card annual-allocation">
+    <div class="stat-card annual-allocation one-third-card">
         <div class="stat-header">
             <h3>Annual Allocation</h3>
         </div>
@@ -527,9 +530,9 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             <div class="stat-note">Annual visa allocations</div>
         </div>
     </div>
-
+    
     <?php if (isset($cases_ahead) && !isset($cases_ahead['error'])): ?>
-        <div class="stat-card cases-ahead">
+        <div class="stat-card cases-ahead one-third-card">
             <div class="stat-header">
                 <h3>Cases Ahead in Queue</h3>
                 <span class="stat-date">As of <?php echo date('j F Y', strtotime($cases_ahead['latest_update'])); ?></span>
@@ -544,7 +547,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         </div>
     <?php endif; ?>
 
-    <div class="stat-card total-processed">
+    <div class="stat-card total-processed one-third-card">
         <div class="stat-header">
             <h3>Total Processed This Year</h3>
             <span class="stat-date"><?php echo $total_processed['financial_year']; ?></span>
@@ -559,7 +562,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
     </div>
 
     <?php if (isset($priority_cases) && !isset($priority_cases['error'])): ?>
-        <div class="stat-card priority-cases">
+        <div class="stat-card priority-cases one-third-card">
             <div class="stat-header">
                 <h3>Cases granted to applications younger than yours</h3>
                 <span class="stat-date"><?php echo $priority_cases['financial_year']; ?></span>
@@ -575,7 +578,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
     <?php endif; ?>
 
     <?php if (isset($priority_ratio) && !isset($priority_ratio['error'])): ?>
-        <div class="stat-card priority-ratio">
+        <div class="stat-card priority-ratio one-third-card">
             <div class="stat-header">
                 <h3>Processing Order Distribution</h3>
                 <span class="stat-date"><?php echo $priority_ratio['financial_year']; ?></span>
@@ -597,11 +600,12 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             <div class="stat-footer">
                 <div class="stat-note">Shows the distribution of processed cases: those lodged after your date (<?php echo date('j F Y', strtotime($priority_ratio['reference_date'])); ?>) vs. those lodged before</div>
             </div>
+
         </div>
     <?php endif; ?>
 
     <?php if (isset($allocations_remaining) && !isset($allocations_remaining['error'])): ?>
-        <div class="stat-card allocations-remaining">
+        <div class="stat-card allocations-remaining one-third-card">
             <div class="stat-header">
                 <h3>Allocations Remaining</h3>
                 <span class="stat-date"><?php echo $allocations_remaining['financial_year']; ?></span>
@@ -626,7 +630,12 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             <div class="stat-footer">
                 <div class="stat-note">Remaining visa allocations for <?php echo $allocations_remaining['financial_year']; ?></div>
             </div>
+           
         </div>
-    <?php endif; ?>
+        </div>
+        <?php endif; ?>  
+        </div>
+    
     <?php endif; ?>
 </div> 
+
