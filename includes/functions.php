@@ -1271,43 +1271,90 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
             return ['error' => 'No queue data available'];
         }
         
-        // Get cases ahead in queue
+        // Parse the lodgement date to get day of month
+        $lodgement_datetime = new DateTime($lodgement_date);
+        $day_of_month = intval($lodgement_datetime->format('d'));
+        $lodgement_month_start = $lodgement_datetime->format('Y-m-01');
+        
+        // Get cases ahead in queue, separating the lodgement month
         $query = "
             WITH LatestCounts AS (
                 SELECT 
                     vl.lodged_month,
                     vqu.queue_count,
-                    vqu.update_month
+                    vqu.update_month,
+                    CASE 
+                        WHEN DATE_FORMAT(vl.lodged_month, '%Y-%m') = DATE_FORMAT(?, '%Y-%m') THEN 1
+                        ELSE 0
+                    END as is_lodgement_month
                 FROM visa_lodgements vl
                 JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
                 WHERE vl.visa_type_id = ?
                 AND vqu.update_month = ?
-                AND vl.lodged_month < ?
+                AND (
+                    vl.lodged_month < ?  -- Previous months
+                    OR (
+                        DATE_FORMAT(vl.lodged_month, '%Y-%m') = DATE_FORMAT(?, '%Y-%m')  -- Same month
+                    )
+                )
             )
             SELECT 
-                SUM(queue_count) as total_ahead,
+                SUM(CASE 
+                    WHEN is_lodgement_month = 1 THEN 
+                        queue_count * ? / DAY(LAST_DAY(lodged_month))
+                    ELSE queue_count 
+                END) as total_ahead,
                 JSON_ARRAYAGG(
                     JSON_OBJECT(
                         'lodged_month', lodged_month,
-                        'queue_count', queue_count
+                        'queue_count', queue_count,
+                        'prorated_count', CASE 
+                            WHEN is_lodgement_month = 1 THEN 
+                                queue_count * ? / DAY(LAST_DAY(lodged_month))
+                            ELSE queue_count 
+                        END
                     )
+                    ORDER BY lodged_month DESC
                 ) as breakdown
             FROM LatestCounts
         ";
         
         $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'iss', $visa_type_id, $latest_update, $lodgement_date);
+        mysqli_stmt_bind_param($stmt, 'sisssis', 
+            $lodgement_date,         // For DATE_FORMAT in is_lodgement_month
+            $visa_type_id,           // For visa_type_id
+            $latest_update,          // For update_month
+            $lodgement_date,         // For < comparison
+            $lodgement_date,         // For DATE_FORMAT in OR clause
+            $day_of_month,           // For prorating calculation
+            $day_of_month           // For prorating in JSON_OBJECT
+        );
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
         $row = mysqli_fetch_assoc($result);
         
         if ($row) {
             $breakdown = $row['breakdown'] ? json_decode($row['breakdown'], true) : [];
+            
+            // Add detailed logging
+            error_log("Cases ahead calculation breakdown:");
+            error_log("Lodgement date: $lodgement_date (Day $day_of_month)");
+            foreach ($breakdown as $month) {
+                error_log(sprintf(
+                    "Month: %s, Original Count: %d, Prorated Count: %.2f%s",
+                    $month['lodged_month'],
+                    $month['queue_count'],
+                    $month['prorated_count'],
+                    $month['lodged_month'] === $lodgement_month_start ? " (Lodgement month)" : ""
+                ));
+            }
+            
             return [
                 'total_ahead' => intval($row['total_ahead']),
                 'latest_update' => $latest_update,
                 'breakdown' => $breakdown,
-                'lodgement_date' => $lodgement_date
+                'lodgement_date' => $lodgement_date,
+                'day_of_month' => $day_of_month
             ];
         }
         
@@ -1699,34 +1746,34 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $is_overdue = false;
 
         // Define overdue conditions:
-        // 1. Has cases ahead but fewer than 15% of monthly rate OR
-        // 2. Is from previous FY and has zero cases ahead
+        // 1. Application is from previous FY AND
+        // 2. Either has very few cases ahead (less than 15% of monthly rate) OR has zero cases ahead
         error_log("Checking overdue conditions:");
         error_log("- Processing threshold (15% of $weighted_average): $processing_threshold");
         error_log("- Cases ahead: " . $cases_ahead['total_ahead']);
         error_log("- Is previous FY: " . ($is_previous_fy ? 'true' : 'false'));
 
-        if (($cases_ahead['total_ahead'] > 0 && $cases_ahead['total_ahead'] < $processing_threshold) ||
-            ($is_previous_fy && $cases_ahead['total_ahead'] === 0)) {
+        if ($is_previous_fy && 
+            ($cases_ahead['total_ahead'] < $processing_threshold || $cases_ahead['total_ahead'] === 0)) {
             $is_overdue = true;
             error_log("Application marked as overdue because: " . 
-                (($cases_ahead['total_ahead'] > 0 && $cases_ahead['total_ahead'] < $processing_threshold) ? 
+                ($cases_ahead['total_ahead'] > 0 ? 
                     "cases ahead ({$cases_ahead['total_ahead']}) is less than 15% of processing rate ($processing_threshold)" :
                     "application is from previous FY with no cases ahead"));
         }
-        
+
         // Validate required data
         if (isset($cases_ahead['error']) || isset($allocations['error']) || isset($priority_ratio['error'])) {
             return ['error' => 'Insufficient data for prediction'];
         }
-        
+
         // Calculate non-priority places remaining
         $priority_percentage = $priority_ratio['priority_percentage'] / 100;
         $non_priority_ratio = 1 - $priority_percentage;
         $non_priority_places = round($allocations['remaining'] * $non_priority_ratio);
         
-        // Check if processing likely in next FY
-        if ($cases_ahead['total_ahead'] > $non_priority_places) {
+        // Check if processing likely in next FY - ONLY if not overdue
+        if (!$is_overdue && $cases_ahead['total_ahead'] > $non_priority_places) {
             // Calculate base rate
             $base_rate = $weighted_average * $non_priority_ratio;
             error_log("Initial base rate for next FY case: $base_rate");

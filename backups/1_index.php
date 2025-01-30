@@ -66,10 +66,6 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
     <meta name="application-name" content="When Am I Going">
     <meta name="theme-color" content="#3b82f6">
     
-    <!-- Favicon -->
-    <link rel="icon" type="image/webp" href="favicons/aus_icon.webp">
-    <link rel="shortcut icon" type="image/webp" href="favicons/aus_icon.webp">
-    
     <link rel="stylesheet" href="css/style.css">
     <title>Australia Visa Timeline Calculator - When Am I Going</title>
 
@@ -88,7 +84,7 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
     <!-- Add site name banner -->
     <div class="site-banner">
         <div class="site-banner-content">
-            <a href="/" class="site-name">WWW.WHENAMIGOING.COM - Realistic VISA predictions</a>
+            <a href="/" class="site-name">www.WhenAmIGoing.com</a>
         </div>
     </div>
 
@@ -101,7 +97,7 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
         <div class="header-content">
             <div class="header-text-container">
                 <h1 class="header-title">Australia Visa Timeline Calculator</h1>
-                <p class="header-subtitle">Built by an Applicant, for Applicants.</p>
+                <p class="header-subtitle">Built by an Applicant, for Applicants. We understand the frustration of ever-changing predictions. Our aim is to make ours accurate, realistic, and trustworthy.</p>
             </div>
         </div>
     </header>
@@ -121,11 +117,14 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
         <!-- Predictor Tab -->
         <div id="predictor" class="main-tab-content active">
             <div class="warm-message">
-                <p><strong>Welcome to the Visa Processing Timeline Predictor</strong> for non-priority Australian visa applicants.
-
-Select your visa type and application date to get an estimated processing timeline based on queue position and past trends.</p>
+                <p>Welcome to the Visa Processing Timeline Predictor for non-priority Australian visa applicants. Please select your visa type and the date you applied to get an estimated processing timeline.</p>
             </div>
-          
+            
+            <div class="warning-message">
+                <strong>Important Notice for 189 Visa Applicants:</strong> 
+                <p>189 visas are typically invited in large rounds. Our predictions are based on FOI data showing month-to-month visa numbers on hand. Due to this monthly aggregation, we cannot determine exact lodgement dates within a month. This can lead to significant variations in predictions between months where large invitation rounds occurred (as seen in November and December 2024).</p>
+            </div>
+            
             <form id="predictionForm" onsubmit="return submitPrediction(event)" class="predictions-section">
                 <div class="form-group">
                     <label for="visaType">Select Visa Type:</label>
@@ -184,11 +183,11 @@ Select your visa type and application date to get an estimated processing timeli
                             <p>Most tools, including the <a href="https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-processing-times/global-visa-processing-times" target="_blank" rel="noopener noreferrer" class="govt-link">official government calculator</a>, show:</p>
                             <ul>
                                 <li>Ages of recently granted visas</li>
-                                <li>50th and 90th processing time percentiles of recently granted visas</li>
-                                <li>This is not a forecast, just a reporting statistic</li>
+                                <li>75% and 90% processing time percentiles</li>
+                                <li>Historical data of past applications</li>
                             </ul>
                             <div class="limitation-note">
-                                <p><strong>Key Limitation:</strong><br>These statistics are backward-looking. They show how long past applicants waited but do not predict future wait times. Since they ignore the number of applications ahead in the queue, they change frequently and should not be used as a forecast. They tend to change repeatedly</p>
+                                <p><strong>Key Limitation:</strong> Doesn't account for the number of applications ahead of you in the queue</p>
                             </div>
                         </div>
                     </div>
@@ -206,7 +205,7 @@ Select your visa type and application date to get an estimated processing timeli
                                 <li>Annual processing caps</li>
                             </ul>
                             <div class="advantage-note">
-                                <p><strong>Key Advantage:</strong> <br>Tells you if you are likely to be processed this Financial year considering the legislative caps. <br> Determines when you will reach the front of the queue based on a weighted average processing rate and queue length.<br>For more information on the migration program planning levels, visit the <a href="https://immi.homeaffairs.gov.au/what-we-do/migration-program-planning-levels" target="_blank" rel="noopener noreferrer">Australian Government Department of Home Affairs</a>.</p>
+                                <p><strong>Key Advantage:</strong> Calculates when the system will actually reach your application</p>
                             </div>
                         </div>
                     </div>
