@@ -2272,156 +2272,33 @@ select:focus option:disabled {
 
 /* Stats Grid Layout */
 .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr); /* 3 cards per row */
-    gap: 1rem; /* Consistent spacing between cards */
-    margin: 1.5rem auto; /* Center the grid */
-    max-width: 1200px; /* Limit the width of the grid */
-    padding: 0 1rem; /* Add padding for smaller screens */
-}
-
-/* Adjust grid layout for larger screens */
-@media (min-width: 768px) {
-    .stats-grid {
-        grid-template-columns: repeat(3, 1fr); /* Adjust the number of columns as needed */
-    }
-}
-
-/* Stat Card Styles with a card effect with a corner top right */
-.stat-card {
-    background: #f8fafc;
-    border-radius: 8px 8px 8px 0; /* Modified to have a corner effect on top right */
-    padding: 1rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    transition: transform 0.2s ease;
-    width: 100%;
-    margin: 0;
-}
-
-.stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
-    background: #f1f5f9;
-}
-
-.stat-header {
-    margin-bottom: 1rem;
-}
-
-.stat-header h3 {
-    color: #1e293b;
-    font-size: 1.2rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-}
-
-.stat-date {
-    color: #64748b;
-    font-size: 0.9rem;
-}
-
-.stat-body {
-    text-align: center;
-    padding: 1rem 0;
-}
-
-.stat-number {
-    font-size: 2rem;
-    font-weight: 700;
-    color: #0369a1;
-    margin-bottom: 0.5rem;
-}
-
-.stat-label {
-    color: #475569;
-    font-size: 1rem;
-    font-weight: 500;
-}
-
-.stat-footer {
-    margin-top: 1rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #e2e8f0;
-}
-
-.stat-note {
-    color: #64748b;
-    font-size: 0.9rem;
-    line-height: 1.4;
-}
-
-/* Processing list styles */
-.processing-list {
-    max-height: 300px;
-    overflow-y: auto;
-    padding-right: 10px;
-}
-
-.processing-month {
-    background: #f1f5f9;
-    border-radius: 8px;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-
-.processing-month:hover {
-    background: #e2e8f0;
-}
-
-.month-header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem; /* Consistent gap between cards */
+    margin: 1rem auto; /* Reduced from 1.5rem to 1rem */
+    max-width: 1200px;
+    padding: 0 0.5rem; /* Reduced padding */
 }
 
-.month-label {
-    font-weight: 600;
-    color: #1e293b;
+/* Base Card Styles */
+.stat-card {
+    margin-bottom: 1rem; /* Reduced from 1.5rem */
 }
 
-.processed-count {
-    font-weight: 700;
-    color: #0369a1;
-    font-size: 1.1rem;
-}
-
-.average-rate {
-    font-weight: 600;
-    color: #0369a1;
-    font-size: 1rem;
-    margin-left: 0.5rem;
-}
-
-/* Scrollbar styling */
-.processing-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.processing-list::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    border-radius: 3px;
-}
-
-.processing-list::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 3px;
-}
-
-.processing-list::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-}
-
-/* Responsive adjustments */
+/* Responsive Design */
 @media (max-width: 1200px) {
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+    .one-third-card {
+        width: calc(50% - 1rem);
     }
 }
 
 @media (max-width: 768px) {
+    .one-third-card {
+        width: calc(100% - 1rem);
+    }
+    
     .stats-grid {
-        grid-template-columns: 1fr;
-        padding: 0 0.5rem;
+        padding: 0 0.25rem;
     }
 }
 
@@ -2560,8 +2437,11 @@ select:focus option:disabled {
 }
 
 .prediction-highlight {
-    background: linear-gradient(135deg, #c7d2fe, #e0e7ff);
+    background: linear-gradient(135deg, #bbc7fe, #d0d7ff); /* Darker gradient */
     border: 3px solid #818cf8;
+    box-shadow: 
+        rgba(50, 50, 93, 0.35) 0px 15px 35px -5px,
+        rgba(0, 0, 0, 0.4) 0px 10px 20px -8px;
     grid-column: 1 / -1;
     position: relative;
     overflow: hidden;
@@ -2571,8 +2451,11 @@ select:focus option:disabled {
 
 /* Add celebration mode styles */
 .prediction-highlight.celebration-mode {
-    background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+    background: linear-gradient(135deg, #caf7d7, #aaf2c0); /* Darker celebration gradient */
     border: 3px solid #4ade80;
+    box-shadow: 
+        rgba(20, 83, 45, 0.35) 0px 15px 35px -5px,
+        rgba(0, 0, 0, 0.4) 0px 10px 20px -8px;
 }
 
 .celebration-mode .stat-header h3 {
@@ -3674,7 +3557,10 @@ select:focus option:disabled {
 /* Overdue Alert Card Styling */
 .overdue-alert {
     border: 2px solid #ff4444;
-    background-color: #fff5f5;
+    background-color: #fff1f1; /* Slightly darker red background */
+    box-shadow: 
+        rgba(255, 68, 68, 0.25) 0px 13px 27px -5px,
+        rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
 }
 
 .overdue-alert .stat-header h3 {
@@ -4452,4 +4338,398 @@ canvas#testChart {
 .stat-column .stat-row .value {
     color: #2c3e50;
     font-weight: 600;
+}
+
+/* Queue Age Relationship Card Styles */
+.queue-age-relationship {
+    background-color: #f8f9fb;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.age-prediction-summary {
+    padding: 20px;
+}
+
+.prediction-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.stat-item .label {
+    font-size: 0.9em;
+    color: #666;
+}
+
+.stat-item .value {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #333;
+}
+
+.stat-item .value.older {
+    color: #dc3545;
+}
+
+.stat-item .value.younger {
+    color: #28a745;
+}
+
+.age-explanation {
+    margin-top: 20px;
+}
+
+.age-explanation h4 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+.explanation-content {
+    color: #555;
+    line-height: 1.6;
+}
+
+.key-concepts {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.key-concepts h5 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.key-concepts ol, 
+.key-concepts ul {
+    padding-left: 20px;
+}
+
+.key-concepts li {
+    margin-bottom: 10px;
+}
+
+.practical-example {
+    background: #e8f4ff;
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.practical-example h5 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.practical-example ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+
+.practical-example li {
+    margin-bottom: 8px;
+    padding-left: 20px;
+    position: relative;
+}
+
+.practical-example li:before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #0056b3;
+}
+
+/* Base Card Styles */
+.stat-card {
+    background: #f8f9fb; /* Slightly darker background */
+    border-radius: 16px;
+    box-shadow: 
+        rgba(50, 50, 93, 0.25) 0px 13px 27px -5px,
+        rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    overflow: hidden;
+    position: relative;
+    backdrop-filter: blur(10px);
+    margin-bottom: 1.5rem;
+}
+
+.stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 
+        rgba(50, 50, 93, 0.35) 0px 15px 35px -5px,
+        rgba(0, 0, 0, 0.4) 0px 10px 20px -8px;
+}
+
+/* Card Header Styles */
+.stat-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    background: linear-gradient(to right, #eef2f6, #e5eaf0); /* Darker gradient */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat-header h3 {
+    color: #1e293b;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.stat-date {
+    color: #64748b;
+    font-size: 0.875rem;
+}
+
+/* Card Body Styles */
+.stat-body {
+    padding: 1.5rem;
+    position: relative;
+}
+
+/* One Third Card Specific Styles */
+.one-third-card {
+    width: calc(33.333% - 1rem); /* Reduced from 1.5rem to 1rem */
+    margin: 0.5rem; /* Reduced from 0.75rem to 0.5rem */
+    min-width: 250px; /* Reduced from 300px to allow better fit */
+}
+
+.one-third-card .stat-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 1rem 0;
+    background: linear-gradient(45deg, #1e293b, #334155);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.one-third-card .stat-label {
+    color: #64748b;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+}
+
+/* Full Width Card Specific Styles */
+.full-width-card {
+    width: 100%;
+    margin: 1.5rem 0;
+    background: #f8f9fb;
+    box-shadow: 
+        rgba(50, 50, 93, 0.25) 0px 13px 27px -5px,
+        rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
+}
+
+.full-width-card .stat-body {
+    /* Remove min-height to allow dynamic sizing */
+    height: auto;
+    padding: 2rem;
+    overflow: visible; /* Allow content to be fully visible */
+}
+
+/* Card Footer Styles */
+.stat-footer {
+    padding: 1rem 1.5rem;
+    background: #f8fafc;
+    border-top: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.stat-note {
+    color: #64748b;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+/* Card Content Styles */
+.stat-content {
+    position: relative;
+    z-index: 1;
+}
+
+/* Gradient Border Effect */
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(
+        90deg,
+        #3b82f6 0%,
+        #2563eb 100%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.stat-card:hover::before {
+    opacity: 1;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .one-third-card {
+        width: calc(50% - 1rem);
+    }
+}
+
+@media (max-width: 768px) {
+    .one-third-card {
+        width: calc(100% - 1rem);
+    }
+    
+    .stat-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+}
+
+/* Special States */
+.stat-card.highlight {
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    background: linear-gradient(
+        to bottom right,
+        rgba(248, 249, 251, 0.95),
+        rgba(238, 242, 246, 0.95)
+    );
+}
+
+/* Chart Container Styles */
+.chart-container {
+    background: #f8f9fb; /* Match the base card background */
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.1),
+        rgba(50, 50, 93, 0.25) 0px 13px 27px -5px,
+        rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
+}
+
+/* Loading State */
+.stat-card.loading {
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card.loading::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.8) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* Queue Age Relationship Card Specific Styles */
+.queue-age-relationship {
+    background-color: #f8f9fb;
+    border-radius: 8px;
+    box-shadow: 
+        rgba(50, 50, 93, 0.25) 0px 13px 27px -5px,
+        rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
+    height: auto; /* Allow dynamic height */
+    overflow: visible; /* Ensure content is visible */
+    width: 100%; /* Ensure full width */
+    margin: 1.5rem 0;
+}
+
+.age-prediction-summary {
+    padding: 2rem;
+    height: auto;
+    width: 100%;
+}
+
+/* Ensure nested elements don't cause overflow */
+.prediction-stats,
+.age-explanation,
+.key-concepts,
+.practical-example {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    margin-bottom: 1.5rem;
+}
+
+/* Style the content within the card */
+.age-explanation h4 {
+    color: #2c3e50;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.explanation-content {
+    padding: 1rem;
+    background: #fff;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.key-concepts {
+    background: #f8fafc;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+}
+
+.key-concepts h5 {
+    color: #2c3e50;
+    margin-bottom: 1rem;
+}
+
+.key-concepts ol {
+    padding-left: 1.5rem;
+    margin: 0;
+}
+
+.key-concepts li {
+    margin-bottom: 1rem;
+    line-height: 1.5;
+}
+
+/* Remove any fixed heights from parent containers */
+.stat-card.full-width-card,
+.stat-card.full-width-card .stat-body,
+.stats-grid {
+    height: auto;
+    min-height: auto;
+}
+
+/* Ensure the grid allows full-width cards to expand */
+.stats-grid {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
 }

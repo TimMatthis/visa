@@ -766,6 +766,106 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         <?php endif; ?>
     <?php endif; ?>
 
+  
+    <?php if (isset($prediction) && isset($age_stats) && !isset($prediction['error']) && !isset($age_stats['error'])): ?>
+        <div class="stat-card queue-age-relationship full-width-card">
+            <div class="stat-header">
+                <h3>Understanding Processing Age & Queue Position</h3>
+            </div>
+            <div class="stat-body">
+                <?php
+                // Calculate the predicted age at grant
+                $predicted_grant_date = new DateTime($prediction['eighty_percent']);
+                $lodgement_date = new DateTime($prediction['lodgement_date']);
+                $predicted_age_months = ($predicted_grant_date->diff($lodgement_date)->days) / 30.44;
+                
+                // Compare with modal age
+                $modal_age = $age_stats['modal_age'];
+                $age_difference = $predicted_age_months - $modal_age;
+                ?>
+                
+                <div class="age-prediction-summary">
+                    <div class="prediction-stats">
+                        <div class="stat-item">
+                            <span class="label">Your Predicted Age at Grant:</span>
+                            <span class="value"><?php echo number_format($predicted_age_months, 1); ?> months</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="label">Current Modal Processing Age:</span>
+                            <span class="value"><?php echo number_format($modal_age, 1); ?> months</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="label">Difference:</span>
+                            <span class="value <?php echo $age_difference > 0 ? 'older' : 'younger'; ?>">
+                                <?php echo $age_difference > 0 ? '+' : ''; ?><?php echo number_format($age_difference, 1); ?> months
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="age-explanation">
+                        <?php if ($age_difference > 0): ?>
+                            <h4>Why Your Predicted Age is Higher Than Current Processing Age</h4>
+                            <div class="explanation-content">
+                                <p>Based on current queue position and processing rates, your application is predicted to be 
+                                <strong><?php echo number_format($predicted_age_months, 1); ?> months old</strong> when granted. 
+                                This is <strong><?php echo number_format($age_difference, 1); ?> months older</strong> than the 
+                                current most common processing age of <?php echo number_format($modal_age, 1); ?> months. The Department's 
+                                90th percentile processing time typically aligns with the most common processing age, so as applications 
+                                like yours continue to age in the queue, we expect both the modal processing age and the official 90th 
+                                percentile processing time to increase to match your predicted grant age.</p>
+
+                                <div class="key-concepts">
+                                    <h5>Important Concepts to Understand:</h5>
+                                    <ol>
+                                        <li>
+                                            <strong>Queue Movement & Processing Times:</strong> As applications age in the queue, both the 
+                                            typical processing age and official processing times naturally increase to reflect this aging.
+                                        </li>
+                                        <li>
+                                            <strong>90th Percentile Alignment:</strong> The Department's published 90th percentile processing 
+                                            time usually matches the most common grant age, providing a reliable benchmark.
+                                        </li>
+                                        <li>
+                                            <strong>Dynamic Nature:</strong> Both your application's age and the Department's processing 
+                                            times will likely converge as the queue progresses.
+                                        </li>
+                                    </ol>
+                                </div>
+
+                                <div class="practical-example">
+                                    <h5>How This Works:</h5>
+                                    <ul>
+                                        <li>Current modal processing age: <?php echo number_format($modal_age, 1); ?> months</li>
+                                        <li>Your predicted age at grant: <?php echo number_format($predicted_age_months, 1); ?> months</li>
+                                        <li>As the queue processes, both these numbers will likely increase together</li>
+                                        <li>The Department's official processing times will likely adjust to reflect this progression</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <h4>Your Application is Tracking Well</h4>
+                            <div class="explanation-content">
+                                <p>Good news! Your application is predicted to be processed at 
+                                <strong><?php echo number_format($predicted_age_months, 1); ?> months</strong>, which is 
+                                actually <?php echo number_format(abs($age_difference), 1); ?> months younger than the 
+                                current most common processing age of <?php echo number_format($modal_age, 1); ?> months.</p>
+
+                                <div class="key-concepts">
+                                    <h5>What This Means:</h5>
+                                    <ul>
+                                        <li>Your application is likely to be processed faster than the current typical timeline</li>
+                                        <li>This could be due to various factors like queue position or processing rate improvements</li>
+                                        <li>Keep monitoring for any changes in processing patterns</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($age_stats) && !isset($age_stats['error'])): ?>
         <div class="stat-card full-width-card">
             <div class="stat-header">
@@ -829,6 +929,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         });
         </script>
     <?php endif; ?>
+
 
 </div>
 
