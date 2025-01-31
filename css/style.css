@@ -577,9 +577,34 @@ input[type="file"]:hover {
 
 .chart-container {
     position: relative;
-    height: 400px;
     width: 100%;
-    margin-top: 1rem;
+    height: 400px;
+    margin: 20px 0;
+}
+
+canvas#ageDistributionChart {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.full-width-card {
+    width: 100%;
+    margin: 20px 0;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.full-width-card .stat-body {
+    padding: 20px;
+    height: 400px;
+    position: relative;
+}
+
+canvas#testChart {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 /* Add this to the existing .queue-data class */
@@ -4149,4 +4174,282 @@ select:focus option:disabled {
     width: 100%;
     display: flex;
     flex-wrap: wrap;
+}
+
+/* Age Statistics Card Styles */
+.age-statistics.stat-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    margin-top: 2rem;
+    width: 100%; /* Full width since it contains three one-third cards */
+}
+
+.age-statistics .stats-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1.5rem;
+}
+
+.age-statistics .stat-column {
+    width: 30.33%;
+    float: left;
+    box-sizing: border-box;
+    padding: 1.5rem;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.age-statistics h4 {
+    color: #1e293b;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.age-statistics .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px dashed #e2e8f0;
+}
+
+.age-statistics .stat-row:last-child {
+    border-bottom: none;
+}
+
+.age-statistics .label {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.age-statistics .value {
+    font-weight: 600;
+    color: #0369a1;
+}
+
+.age-statistics .interpretation-text {
+    color: #475569;
+    line-height: 1.6;
+    font-size: 1rem;
+    padding: 1rem;
+    background: #f0f9ff;
+    border-radius: 6px;
+    border: 1px solid #bae6fd;
+}
+
+.age-statistics .stat-footer {
+    clear: both; /* Clear the float */
+    border-top: 1px solid #e2e8f0;
+    padding: 1rem 1.5rem;
+    margin-top: 1rem;
+}
+
+.age-statistics .stat-note {
+    color: #64748b;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+    .age-statistics .stat-column {
+        width: 47%; /* Adjust for 2 columns */
+    }
+    
+    .age-statistics .stat-column:last-child {
+        width: 96%; /* Full width for last column */
+        float: none;
+        clear: both;
+    }
+}
+
+@media (max-width: 768px) {
+    .age-statistics .stat-column {
+        width: 96%;
+        float: none;
+        margin-bottom: 1rem;
+    }
+}
+
+.distribution-chart-container {
+    clear: both;
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    margin: 1.5rem;
+    height: 300px; /* Reduced height */
+}
+
+.distribution-chart-container h4 {
+    color: #1e293b;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
+    text-align: center;
+}
+
+.mode-explanation {
+    background: #f0f9ff;
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    border-left: 4px solid #3b82f6;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.statistical-note {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: #f8fafc;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #64748b;
+    font-style: italic;
+}
+
+.full-width-card {
+    grid-column: 1 / -1; /* Span all columns */
+    margin-top: 2rem;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.full-width-card .stat-body {
+    padding: 20px;
+    height: 400px;
+    position: relative;
+}
+
+canvas#testChart {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.full-width-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin: 2rem 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.full-width-card .stat-body {
+    padding: 20px;
+    height: 400px;
+    position: relative;
+}
+
+#ageHistogram {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 360px !important; /* Add this */
+}
+
+/* Add this to ensure the canvas container is visible */
+.stat-body {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.stat-card.full-width-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin: 2rem 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.stat-card.full-width-card .stat-body {
+    height: 400px;
+    padding: 20px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#ageHistogram {
+    width: 100% !important;
+    height: 360px !important;
+}
+
+.interpretation-section {
+    margin-top: 1.5rem;
+}
+
+.key-point {
+    font-size: 1.1em;
+    margin-bottom: 1rem;
+    color: #2c3e50;
+}
+
+.important-warning {
+    background-color: #fff3cd;
+    border: 1px solid #ffeeba;
+    border-radius: 4px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.important-warning h5 {
+    color: #856404;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+.important-warning ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.important-warning li {
+    margin-bottom: 0.5rem;
+    color: #666;
+}
+
+.statistical-note {
+    background-color: #e2e8f0;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-size: 0.9em;
+    color: #4a5568;
+}
+
+.interpretation-text {
+    line-height: 1.6;
+}
+
+.stat-column .stat-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.stat-column .stat-row .label {
+    color: #495057;
+    font-weight: 500;
+}
+
+.stat-column .stat-row .value {
+    color: #2c3e50;
+    font-weight: 600;
 }

@@ -2128,6 +2128,303 @@ function getVisaQueueData($visa_type_id) {
     }
 }
 
+/**
+ * Get the current length of the queue
+ * 
+ * @return int Number of messages in the queue
+ */
+function get_queue_length() {
+    global $db;
+    
+    $sql = "SELECT COUNT(*) as count FROM message_queue";
+    $result = $db->query($sql);
+    $row = $result->fetch_assoc();
+    
+    return (int)$row['count'];
+}
+
+/**
+ * Get Case Age Statistics
+ * 
+ * @description Calculates statistical measures for visa processing ages in current FY
+ * @param int $visa_type_id The ID of the visa type to analyze
+ * @param string|null $lodgement_date Optional reference date for comparison
+ * @return array Statistical measures including mean, mode, standard deviation, and variance
+ */
+function getCaseAgeStatistics($visa_type_id, $lodgement_date = null) {
+    global $conn;
+    
+    try {
+        $fy_dates = getCurrentFinancialYearDates();
+        
+        // Modified query to ensure we're only counting actual grants (where queue count decreases)
+        $query = "
+            WITH MonthlyChanges AS (
+                -- Get all month-to-month changes where count decreased (indicating grants)
+                SELECT 
+                    vl.lodged_month,
+                    curr.update_month as grant_month,
+                    prev.queue_count - curr.queue_count as grants_count,
+                    TIMESTAMPDIFF(MONTH, vl.lodged_month, curr.update_month) as age_at_grant
+                FROM visa_queue_updates curr
+                JOIN visa_lodgements vl ON curr.lodged_month_id = vl.id
+                LEFT JOIN visa_queue_updates prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM visa_queue_updates
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+                WHERE vl.visa_type_id = ?
+                AND curr.update_month BETWEEN ? AND ?
+                AND curr.queue_count < COALESCE(prev.queue_count, curr.queue_count + 1)
+            ),
+            Numbers AS (
+                SELECT 1 as n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL 
+                SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL 
+                SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
+                UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL 
+                SELECT 14 UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL 
+                SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 UNION ALL SELECT 20
+                UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL 
+                SELECT 24 UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL 
+                SELECT 27 UNION ALL SELECT 28 UNION ALL SELECT 29 UNION ALL SELECT 30
+                UNION ALL SELECT 31 UNION ALL SELECT 32 UNION ALL SELECT 33 UNION ALL 
+                SELECT 34 UNION ALL SELECT 35 UNION ALL SELECT 36 UNION ALL 
+                SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39 UNION ALL SELECT 40
+                UNION ALL SELECT 41 UNION ALL SELECT 42 UNION ALL SELECT 43 UNION ALL 
+                SELECT 44 UNION ALL SELECT 45 UNION ALL SELECT 46 UNION ALL 
+                SELECT 47 UNION ALL SELECT 48 UNION ALL SELECT 49 UNION ALL SELECT 50
+            ),
+            ProcessedCases AS (
+                -- Expand each change into individual cases
+                SELECT 
+                    mc.lodged_month,
+                    mc.grant_month,
+                    mc.age_at_grant
+                FROM MonthlyChanges mc
+                JOIN Numbers n ON n.n <= mc.grants_count
+            ),
+            AgeStats AS (
+                SELECT 
+                    AVG(age_at_grant) as mean_age,
+                    STDDEV(age_at_grant) as std_dev,
+                    VARIANCE(age_at_grant) as variance,
+                    COUNT(*) as total_cases,
+                    MIN(age_at_grant) as min_age,
+                    MAX(age_at_grant) as max_age
+                FROM ProcessedCases
+            ),
+            ModeCTE AS (
+                SELECT 
+                    age_at_grant,
+                    COUNT(*) as frequency
+                FROM ProcessedCases
+                GROUP BY age_at_grant
+                ORDER BY COUNT(*) DESC, age_at_grant ASC
+                LIMIT 1
+            )
+            SELECT 
+                a.*,
+                m.age_at_grant as modal_age,
+                GROUP_CONCAT(DISTINCT pc.age_at_grant ORDER BY pc.age_at_grant) as all_ages
+            FROM AgeStats a
+            CROSS JOIN ModeCTE m
+            CROSS JOIN (SELECT DISTINCT age_at_grant FROM ProcessedCases) pc
+            GROUP BY a.mean_age, a.std_dev, a.variance, a.total_cases, 
+                     a.min_age, a.max_age, m.age_at_grant
+        ";
+        
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'iss', 
+            $visa_type_id,
+            $fy_dates['start_date'],
+            $fy_dates['end_date']
+        );
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $stats = mysqli_fetch_assoc($result);
+        
+        if (!$stats || $stats['total_cases'] == 0) {
+            return ['error' => 'No processing data available for this visa type'];
+        }
+
+        // Debug log to check raw values
+        error_log("Raw stats: " . print_r($stats, true));
+        
+        // Calculate mode from all_ages (as a backup verification)
+        $ages = array_map('intval', explode(',', $stats['all_ages']));
+        $age_counts = array_count_values($ages);
+        arsort($age_counts);
+        $calculated_mode = key($age_counts);
+        
+        // Use the directly calculated mode from SQL if available, otherwise use the backup
+        $mode = $stats['modal_age'] ?? $calculated_mode;
+        
+        // Calculate one standard deviation range
+        $mean = floatval($stats['mean_age']);
+        $std_dev = floatval($stats['std_dev']);
+        $std_dev_lower = $mean - $std_dev;
+        $std_dev_upper = $mean + $std_dev;
+        
+        // Calculate percentile of reference case if provided
+        $percentile = null;
+        $reference_age = null;
+        if ($lodgement_date) {
+            // Use TIMESTAMPDIFF for consistent age calculation
+            $query = "SELECT TIMESTAMPDIFF(MONTH, ?, CURRENT_DATE) as reference_age";
+            $stmt = mysqli_prepare($conn, $query);
+            mysqli_stmt_bind_param($stmt, "s", $lodgement_date);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $row = mysqli_fetch_assoc($result);
+            $reference_age = $row['reference_age'];
+            
+            // Debug log
+            error_log("Reference case age calculation: Lodgement date: $lodgement_date, Age: $reference_age months");
+            
+            // Calculate percentile
+            $cases_older = 0;
+            foreach ($ages as $age) {
+                if ($age > $reference_age) {
+                    $cases_older++;
+                }
+            }
+            $percentile = (($cases_older) / count($ages)) * 100;
+        }
+        
+        // Prepare statistical summary
+        $stats_summary = [
+            'mean_age' => round($mean, 1),
+            'modal_age' => $mode,
+            'std_dev' => round($std_dev, 1),
+            'variance' => round(floatval($stats['variance']), 1),
+            'std_dev_range' => [
+                'lower' => round($std_dev_lower, 1),
+                'upper' => round($std_dev_upper, 1)
+            ],
+            'age_range' => [
+                'min' => intval($stats['min_age']),
+                'max' => intval($stats['max_age'])
+            ],
+            'total_cases' => intval($stats['total_cases']),
+            'financial_year' => $fy_dates['fy_label']
+        ];
+        
+        // Add reference case comparison if provided
+        if ($lodgement_date) {
+            $stats_summary['reference_case'] = [
+                'age' => $reference_age,
+                'percentile' => round($percentile, 1),
+                'std_deviations_from_mean' => round(($reference_age - $mean) / $std_dev, 1),
+                'comparison_to_mode' => $reference_age - $mode // Add comparison to mode
+            ];
+            
+            // Updated interpretation focusing on mode
+            $stats_summary['interpretation'] = [
+                'age_comparison' => $reference_age > $mode ? 'older' : 'younger',
+                'mode_difference' => abs($reference_age - $mode),
+                'deviation_significance' => abs(($reference_age - $mean) / $std_dev) > 2 ? 'significant' : 'normal',
+                'percentile_interpretation' => $percentile > 75 ? 'high' : ($percentile < 25 ? 'low' : 'moderate'),
+                'use_mode_explanation' => true // Flag to show mode explanation
+            ];
+        }
+        
+        // Get age distribution data for chart
+        $distribution_query = "
+            WITH MonthlyProcessed AS (
+                SELECT 
+                    vl.lodged_month,
+                    curr.update_month,
+                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count
+                FROM visa_queue_updates curr
+                JOIN visa_lodgements vl ON curr.lodged_month_id = vl.id
+                LEFT JOIN visa_queue_updates prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM visa_queue_updates
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+                WHERE vl.visa_type_id = ?
+                AND curr.update_month BETWEEN ? AND ?
+                AND prev.queue_count IS NOT NULL
+            ),
+            ProcessedCases AS (
+                -- This should match the logic in getTotalProcessedToDate
+                SELECT 
+                    TIMESTAMPDIFF(MONTH, lodged_month, update_month) as age_at_grant,
+                    processed_count as count
+                FROM MonthlyProcessed
+                WHERE processed_count > 0
+            ),
+            AgeStats AS (
+                SELECT 
+                    age_at_grant,
+                    SUM(count) as total_count
+                FROM ProcessedCases
+                GROUP BY age_at_grant
+            )
+            SELECT 
+                age_at_grant as age,
+                total_count as count
+            FROM AgeStats
+            ORDER BY age_at_grant;
+        ";
+
+        $stmt = mysqli_prepare($conn, $distribution_query);
+        mysqli_stmt_bind_param($stmt, 'iss', 
+            $visa_type_id,
+            $fy_dates['start_date'],
+            $fy_dates['end_date']
+        );
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+
+        $distribution_data = [
+            'labels' => [],
+            'counts' => [],
+        ];
+
+        // Get the total processed count first
+        $total_processed = getTotalProcessedToDate($visa_type_id);
+
+        // Debug: Log the raw distribution data
+        $debug_data = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $distribution_data['labels'][] = $row['age'];
+            $distribution_data['counts'][] = intval($row['count']);
+            $debug_data[] = $row;
+        }
+        error_log("Age distribution raw data: " . print_r($debug_data, true));
+        error_log("Total cases in distribution: " . array_sum($distribution_data['counts']));
+
+        // Add distribution data to the stats summary
+        $stats_summary['distribution'] = $distribution_data;
+        
+        // After executing the query, add this debug log:
+        $total_histogram_count = array_sum($distribution_data['counts']);
+        error_log("Histogram total count: $total_histogram_count should match total processed: " . $total_processed['total_processed']);
+
+        // Format the data for the chart - using the raw data directly
+        $stats_summary['histogram_data'] = array_map(function($age, $count) {
+            return [
+                'start' => intval($age),
+                'end' => intval($age),
+                'count' => intval($count)
+            ];
+        }, $distribution_data['labels'], $distribution_data['counts']);
+        
+        return $stats_summary;
+        
+    } catch (Exception $e) {
+        error_log("Error in getCaseAgeStatistics: " . $e->getMessage());
+        return ['error' => 'Internal server error'];
+    }
+}
+
 // Continue with other core functions...
 ?> 
 

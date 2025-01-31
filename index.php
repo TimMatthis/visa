@@ -85,6 +85,9 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
 </head>
 
 <body>
+    <!-- Add this right after the body tag -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    
     <!-- Add site name banner -->
     <div class="site-banner">
         <div class="site-banner-content">
@@ -402,18 +405,6 @@ Select your visa type and application date to get an estimated processing timeli
             // Switch to stats tab
             openTab('stats');
             
-            // Update breadcrumb
-            const visaSelect = document.getElementById('visaType');
-            const visaText = visaSelect.options[visaSelect.selectedIndex].text;
-            const year = document.getElementById('applicationYear').value;
-            const month = document.getElementById('applicationMonth').value;
-            const day = document.getElementById('applicationDay').value;
-            
-            document.getElementById('visaTypeBreadcrumb').textContent = `Visa ${visaText}`;
-            document.getElementById('applicationDateBreadcrumb').textContent = 
-                `Applied on ${formatDate(year, month, day)}`;
-            document.getElementById('statsBreadcrumb').style.display = 'block';
-
             // Show loading indicator
             const loadingIndicator = document.querySelector('.loading-indicator');
             const statsContent = document.getElementById('statsContent');
@@ -430,9 +421,17 @@ Select your visa type and application date to get an estimated processing timeli
             })
             .then(response => response.text())
             .then(data => {
-                // Hide loading indicator and show results
                 loadingIndicator.style.display = 'none';
                 statsContent.innerHTML = data;
+                
+                // Add event listener for chart data
+                window.addEventListener('chartDataReady', function(e) {
+                    console.log('Chart data ready event received:', e.detail);
+                    if (e.detail) {
+                        window.chartData = e.detail;
+                        initializeChart();
+                    }
+                }, { once: true });
             })
             .catch(error => {
                 loadingIndicator.style.display = 'none';
@@ -512,6 +511,80 @@ Select your visa type and application date to get an estimated processing timeli
             // Change slide every 5 seconds
             setInterval(nextSlide, 5000);
         });
+
+        // Replace the existing initializeChart function with this updated version
+        function initializeChart() {
+            const canvas = document.getElementById('ageHistogram');
+            if (!canvas) {
+                console.error('Canvas element not found');
+                return;
+            }
+
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js not loaded');
+                return;
+            }
+
+            if (!window.chartData) {
+                console.error('Chart data not available');
+                return;
+            }
+
+            try {
+                // Clear any existing chart
+                const existingChart = Chart.getChart(canvas);
+                if (existingChart) {
+                    existingChart.destroy();
+                }
+
+                const ctx = canvas.getContext('2d');
+                const chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: window.chartData.labels,
+                        datasets: [{
+                            label: 'Number of Applications',
+                            data: window.chartData.counts,
+                            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                            borderColor: 'rgb(54, 162, 235)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Applications'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Age in Months'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Application Age Distribution'
+                            }
+                        }
+                    }
+                });
+                console.log('Chart created successfully');
+            } catch (error) {
+                console.error('Error creating chart:', error);
+            }
+        }
     </script>
 
     <!-- Add this before </body> -->

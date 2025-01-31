@@ -8,6 +8,9 @@ $application_year = $_POST['applicationYear'] ?? null;
 $application_month = $_POST['applicationMonth'] ?? null;
 $application_day = $_POST['applicationDay'] ?? null;
 
+// Initialize $age_stats as null
+$age_stats = null;
+
 if (!$visa_type_id) {
     echo '<div class="error-message">Visa type is required</div>';
     exit;
@@ -76,14 +79,30 @@ if (isset($prediction['lodgement_date'])) {
     $lodgement_date = new DateTime($prediction['lodgement_date']);
     $today = new DateTime();
     $application_age = $lodgement_date->diff($today);
+    error_log("Application age calculated: " . $application_age->y . " years, " . $application_age->m . " months"); // Debug log
+}
+
+// Get case age statistics if we have an application date
+if ($application_date) {
+    $age_stats = getCaseAgeStatistics($visa_type_id, $application_date);
+    // Move the debug log here after we have the data
+    error_log("Age Stats Data: " . print_r($age_stats, true));
 }
 
 // Helper function to generate share message based on prediction state
 function generateShareMessage($prediction, $application_age = null, $months_away = null) {
-    $shareMessage = "🌏 WhenAmIGoing? Visa Tracker Update\n\n";
+    // Get age message if we have application_age
+    $ageMessage = null;
+    if ($application_age && $application_age instanceof DateInterval) {
+        $months = ($application_age->y * 12) + $application_age->m;
+        $ageMessage = getAgeMessage($application_age);
+    }
+
+    // Directly use emojis in the message
+    $shareMessage = "🚀 WhenAmIGoing? Visa Tracker Update 🚀\n\n";
     
     if (($prediction['is_overdue'] ?? false)) {
-        $shareMessage .= "⚠️ ATTENTION: Application Requires Review\n\n";
+        $shareMessage .= "⚠️ ATTENTION: Application Requires Review ⚠️\n\n";
         $shareMessage .= "📋 Your application should have been processed as it is at or near the front of the queue.\n";
         $shareMessage .= "⏰ Status: OVERDUE\n";
         if (isset($application_age)) {
@@ -93,46 +112,57 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         $shareMessage .= "\n🔍 This may indicate a processing delay or technical issue that needs attention.";
     } 
     elseif ($prediction['next_fy'] ?? false) {
-        $shareMessage .= "🗓️ My visa is tracking for next Financial Year (After July 2024)\n";
-        $shareMessage .= "📊 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
+        $shareMessage .= "📆 My visa is tracking for next Financial Year (After July 2024) ⭐\n\n";
+        $shareMessage .= "📈 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
         $shareMessage .= "🎯 Places remaining: " . number_format($prediction['steps']['non_priority_places']) . "\n";
+        $shareMessage .= "\n⭐ Track your journey at WhenAmIGoing.com";
     }
     elseif (isset($months_away) && $months_away <= 3) {
-        // Check if the predicted date is in the past
         $today = new DateTime();
         $grant_date = new DateTime($prediction['eighty_percent']);
         
         if ($grant_date <= $today) {
-            $shareMessage .= "🎉 VISA GRANT IMMINENT!\n\n";
+            $shareMessage .= "🎉 VISA GRANT IMMINENT! 🎊\n\n";
             $shareMessage .= "📋 Your application is currently being processed\n";
             $shareMessage .= "⚡ Status: Within processing variation window\n";
             $shareMessage .= "👀 Keep an eye on your emails!\n";
         } else {
-            $days_remaining = ceil($months_away * 30.44);
+            // Calculate days and weekends using DateTime::diff
+            $interval = $today->diff($grant_date);
+            $days_remaining = $interval->days;
             $weekends_remaining = floor($days_remaining / 7);
             
-            $shareMessage .= "🎉 Less than 3 months to go!\n\n";
-            $shareMessage .= "⏰ It's only {$days_remaining} days until your likely grant date!\n";
-            $shareMessage .= "🗓️ That's {$weekends_remaining} weekends to get ready! 🤗\n\n";
-            $shareMessage .= "📅 Planning Dates:\n";
-            $shareMessage .= "• Likely (80%): " . date('j F Y', strtotime($prediction['eighty_percent'])) . " - Recommended for planning\n";
-            $shareMessage .= "• Latest (100%): " . date('j F Y', strtotime($prediction['latest_date'])) . " - Worst case scenario\n\n";
+            $shareMessage .= "🎉 Less than 3 months to go! 🎊\n\n";
+            $shareMessage .= "⏰ Only {$days_remaining} days until your likely grant date!\n";
+            $shareMessage .= "📆 That's {$weekends_remaining} weekends to get ready! 🤗\n\n";
+            $shareMessage .= "📋 Planning Dates:\n";
+            $shareMessage .= "⭐ Likely (80%): " . date('j F Y', strtotime($prediction['eighty_percent'])) . "\n";
+            $shareMessage .= "🌟 Latest (100%): " . date('j F Y', strtotime($prediction['latest_date'])) . "\n\n";
             $shareMessage .= "📊 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
-            $shareMessage .= "✨ Time to start planning your move to Australia!";
+            $shareMessage .= "🌟 Time to start planning your move to Australia! 🇦🇺";
         }
     }
     else {
-        $shareMessage .= "🎯 On Track This Financial Year\n\n";
-        $shareMessage .= "📅 Recommended Planning Dates:\n";
-        $shareMessage .= "• Likely (80%): " . date('j F Y', strtotime($prediction['eighty_percent'])) . "\n";
-        $shareMessage .= "• Latest (100%): " . date('j F Y', strtotime($prediction['latest_date'])) . "\n\n";
+        $today = new DateTime();
+        $grant_date = new DateTime($prediction['eighty_percent']);
+        
+        $shareMessage .= "🎯 On Track This Financial Year ⭐\n\n";
+        $shareMessage .= "📆 Recommended Planning Dates:\n";
+        $shareMessage .= "⭐ Likely (80%): " . date('j F Y', strtotime($prediction['eighty_percent'])) . "\n";
+        $shareMessage .= "🌟 Latest (100%): " . date('j F Y', strtotime($prediction['latest_date'])) . "\n\n";
         $shareMessage .= "📊 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
         $shareMessage .= "💫 We recommend using the 80% date for planning";
     }
     
-    $shareMessage .= "\nTrack your visa timeline at www.WhenAmIGoing.com";
+    $shareMessage .= "\n\n🔗 Track your visa timeline at www.WhenAmIGoing.com 🌍";
     
-    return urlencode($shareMessage);
+    // Add age message if available
+    if ($ageMessage) {
+        $shareMessage .= "\n\n" . $ageMessage;
+    }
+    
+    // Encode the message for URL
+    return rawurlencode($shareMessage);
 }
 ?>
 
@@ -178,7 +208,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                     </div>
                 </div>
                 <div class="share-section">
-                    <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age); ?>" 
+                    <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age, $months_away); ?>" 
                        target="_blank" 
                        class="whatsapp-share-btn">
                         <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -262,7 +292,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                             </div>
                         </div>
                         <div class="share-section">
-                            <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction); ?>" 
+                            <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age, $months_away); ?>" 
                                target="_blank" 
                                class="whatsapp-share-btn">
                                 <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -377,7 +407,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                 <!-- Share to WhatsApp and Calculation Details should be inside the main card -->
                 <?php if (!($prediction['next_fy'] ?? false)): ?>
                 <div class="share-section">
-                    <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction); ?>" 
+                    <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age, $months_away); ?>" 
                        target="_blank" 
                        class="whatsapp-share-btn">
                         <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -631,11 +661,227 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                 <div class="stat-note">Remaining visa allocations for <?php echo $allocations_remaining['financial_year']; ?></div>
             </div>
            
+            
         </div>
-        </div>
+        
         <?php endif; ?>  
-        </div>
+    
     
     <?php endif; ?>
-</div> 
+
+    <?php if (isset($application_date)): ?>
+        <?php 
+        if (!isset($age_stats['error'])):
+        ?>
+
+        <div class="stat-card age-distribution one-third-card">
+            <div class="stat-header">
+                <h3>Processing Age Distribution</h3>
+                <span class="stat-date"><?php echo $age_stats['financial_year']; ?></span>
+            </div>
+            <div class="stat-body">
+                <div class="stats-grid">
+                    <div class="stat-column">
+                        <h4>Processing Age Distribution</h4>
+                        <div class="stat-row">
+                            <span class="label">Mean Age at Grant:</span>
+                            <span class="value"><?php echo $age_stats['mean_age']; ?> months</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Most Common Age (Mode):</span>
+                            <span class="value"><?php echo $age_stats['modal_age']; ?> months</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Standard Deviation:</span>
+                            <span class="value">±<?php echo $age_stats['std_dev']; ?> months</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Typical Range (±1 SD):</span>
+                            <span class="value"><?php echo $age_stats['std_dev_range']['lower']; ?> to <?php echo $age_stats['std_dev_range']['upper']; ?> months</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-footer">
+                <div class="stat-note">Based on cases lodged during <?php echo $allocations_remaining['financial_year']; ?></div>
+            </div>  
+        </div>
+
+             
+        
+        <div class="stat-card interpretation one-third-card">
+            <div class="stat-body">                    
+                <div class="stat-header">
+                    <h3>Your Application</h3>
+                    <span class="stat-date"><?php echo $application_date = $_POST['applicationDay'] . '-' . $_POST['applicationMonth'] . '-' . $_POST['applicationYear']; ?></span>
+                </div>
+                <div class="stat-column">
+                    <div class="stat-row">
+                        <span class="label">Your Application Age:</span>
+                        <span class="value"><?php echo $age_stats['reference_case']['age']; ?> months old</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="label">Compared to Other Cases:</span>
+                        <span class="value">Older than <?php echo $age_stats['reference_case']['percentile']; ?>% of recent grants</span>
+                    </div>
+                </div>
+
+                <div class="interpretation-section">
+                    <h4>What Does This Mean?</h4>
+                    <div class="interpretation-text">
+                        <p class="key-point">
+                            Your application is <?php echo $age_stats['reference_case']['age']; ?> months old, which is 
+                            <?php echo abs($age_stats['interpretation']['mode_difference']); ?> months older than the 
+                            most commonly granted applications (<?php echo $age_stats['modal_age']; ?> months).
+                        </p>
+                        
+                        <div class="important-warning">
+                            <h5>⚠️ Important Note About Processing Times</h5>
+                            <p>
+                                The age of recently granted visas does not predict when your visa will be granted. This is because:
+                            </p>
+                            <ul>
+                                <li>Processing depends on your position in the queue, not just your application's age</li>
+                                <li>If the queue grows faster than processing rates, average ages will increase</li>
+                                <li>The Department may process applications in various orders based on different priorities</li>
+                            </ul>
+                            <p>
+                                For the most accurate prediction of your grant date, refer to the queue position and processing rate 
+                                calculations shown in the prediction card above.
+                            </p>
+                        </div>
+
+                        <div class="statistical-note">
+                            <p>
+                                While the average (mean) age at grant is <?php echo $age_stats['mean_age']; ?> months, 
+                                this number is pulled higher by older cases and priority processing. The most common 
+                                grant age of <?php echo $age_stats['modal_age']; ?> months gives a better picture of 
+                                typical processing patterns.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if (isset($age_stats) && !isset($age_stats['error'])): ?>
+        <div class="stat-card full-width-card">
+            <div class="stat-header">
+                <h3>Application Age Distribution</h3>
+                <span class="stat-date"><?php echo $age_stats['financial_year']; ?></span>
+            </div>
+            <div class="stat-body chart-container" style="position: relative; height:400px; width:100%">
+                <canvas id="ageHistogram"></canvas>
+            </div>
+            <div class="stat-footer">
+                <div class="stat-note">Distribution of application ages at grant time for <?php echo $age_stats['financial_year']; ?></div>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Initializing chart...');
+
+            <?php if (isset($age_stats) && !isset($age_stats['error'])): ?>
+                console.log('Age stats found:', <?php echo json_encode($age_stats); ?>);
+                
+                const canvas = document.getElementById('ageHistogram');
+                if (!canvas) {
+                    console.error('Canvas not found, cannot render chart.');
+                    return;
+                }
+                const ctx = canvas.getContext('2d');
+                const distributionData = <?php echo json_encode($age_stats['distribution'] ?? []); ?>;
+                console.log('Distribution Data:', distributionData);
+
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: distributionData.labels || [],
+                        datasets: [{
+                            label: 'Number of Applications',
+                            data: distributionData.counts || [],
+                            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                            borderColor: 'rgb(54, 162, 235)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Number of Applications' } },
+                            x: { title: { display: true, text: 'Age in Months' } }
+                        },
+                        plugins: {
+                            legend: { display: true, position: 'top' },
+                            title: { display: true, text: 'Application Age Distribution' }
+                        }
+                    }
+                });
+                console.log('Chart created successfully.');
+            <?php else: ?>
+                // Either $age_stats is not set, or we have an error in $age_stats.
+                console.log('No age_stats or error in age_stats. Distribution chart will not render.');
+            <?php endif; ?>
+        });
+        </script>
+    <?php endif; ?>
+
+</div>
+
+<!-- Move Chart.js to head with defer -->
+</div>
+
+<!-- Simplify the chart JS logic: remove 'alert()' calls and the re-check loop.  -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Initializing chart...');
+
+    <?php if (isset($age_stats) && !isset($age_stats['error'])): ?>
+        console.log('Age stats found:', <?php echo json_encode($age_stats); ?>);
+        
+        const canvas = document.getElementById('ageHistogram');
+        if (!canvas) {
+            console.error('Canvas not found, cannot render chart.');
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+        const distributionData = <?php echo json_encode($age_stats['distribution'] ?? []); ?>;
+        console.log('Distribution Data:', distributionData);
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: distributionData.labels || [],
+                datasets: [{
+                    label: 'Number of Applications',
+                    data: distributionData.counts || [],
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgb(54, 162, 235)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Number of Applications' } },
+                    x: { title: { display: true, text: 'Age in Months' } }
+                },
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                    title: { display: true, text: 'Application Age Distribution' }
+                }
+            }
+        });
+        console.log('Chart created successfully.');
+    <?php else: ?>
+        // Either $age_stats is not set, or we have an error in $age_stats.
+        console.log('No age_stats or error in age_stats. Distribution chart will not render.');
+    <?php endif; ?>
+});
+</script>
 
