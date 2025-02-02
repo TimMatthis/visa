@@ -1244,16 +1244,13 @@ function getAnnualAllocation($visa_type_id) {
  * @description Calculates the number of visa applications lodged before a given date
  * @param int $visa_type_id The ID of the visa type to analyze
  * @param string $lodgement_date The lodgement date in YYYY-MM-DD format
- * @return array Cases ahead details including total count and breakdown
- * @example 
- *   $cases_ahead = getCasesAheadInQueue(190, '2023-07-10');
- * @api_endpoint /api.php?function=getCasesAheadInQueue&visa_type_id=190&lodgement_date=2023-07-10
+ * @return array Cases ahead details including total count and estimated current position
  */
 function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
     global $conn;
     
     try {
-        // First get the latest update date
+        // Get the latest update date
         $latest_update_query = "
             SELECT MAX(update_month) as latest_update
             FROM visa_queue_updates vqu
@@ -1270,13 +1267,19 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
         if (!$latest_update) {
             return ['error' => 'No queue data available'];
         }
+
+        // Get weighted average processing rate
+        $processing_rate = getWeightedAverageProcessingRate($visa_type_id);
         
-        // Parse the lodgement date to get day of month
-        $lodgement_datetime = new DateTime($lodgement_date);
-        $day_of_month = intval($lodgement_datetime->format('d'));
-        $lodgement_month_start = $lodgement_datetime->format('Y-m-01');
+        // Calculate days since last update
+        $last_update_date = new DateTime($latest_update);
+        $today = new DateTime();
+        $days_since_update = $today->diff($last_update_date)->days;
+        $months_since_update = $days_since_update / 30.44; // Average month length
         
-        // Get cases ahead in queue, separating the lodgement month
+        // Original query to get cases ahead as of last update
+        // ... [Previous query remains the same until the final SELECT] ...
+        
         $query = "
             WITH LatestCounts AS (
                 SELECT 
@@ -1319,6 +1322,10 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
             FROM LatestCounts
         ";
         
+        // Parse the lodgement date
+        $lodgement_datetime = new DateTime($lodgement_date);
+        $day_of_month = intval($lodgement_datetime->format('d'));
+        
         $stmt = mysqli_prepare($conn, $query);
         mysqli_stmt_bind_param($stmt, 'sisssis', 
             $lodgement_date,         // For DATE_FORMAT in is_lodgement_month
@@ -1334,27 +1341,25 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
         $row = mysqli_fetch_assoc($result);
         
         if ($row) {
-            $breakdown = $row['breakdown'] ? json_decode($row['breakdown'], true) : [];
+            $total_ahead = intval($row['total_ahead']);
             
-            // Add detailed logging
-            error_log("Cases ahead calculation breakdown:");
-            error_log("Lodgement date: $lodgement_date (Day $day_of_month)");
-            foreach ($breakdown as $month) {
-                error_log(sprintf(
-                    "Month: %s, Original Count: %d, Prorated Count: %.2f%s",
-                    $month['lodged_month'],
-                    $month['queue_count'],
-                    $month['prorated_count'],
-                    $month['lodged_month'] === $lodgement_month_start ? " (Lodgement month)" : ""
-                ));
-            }
+            // Calculate estimated current position
+            $estimated_processed = round($processing_rate * $months_since_update);
+            $estimated_current_ahead = max(0, $total_ahead - $estimated_processed);
+            
+            $breakdown = json_decode($row['breakdown'], true);
             
             return [
-                'total_ahead' => intval($row['total_ahead']),
+                'total_ahead' => $total_ahead,
+                'estimated_current_ahead' => $estimated_current_ahead,
                 'latest_update' => $latest_update,
+                'days_since_update' => $days_since_update,
+                'estimated_processed_since_update' => $estimated_processed,
+                'monthly_processing_rate' => $processing_rate,
                 'breakdown' => $breakdown,
                 'lodgement_date' => $lodgement_date,
-                'day_of_month' => $day_of_month
+                'day_of_month' => $day_of_month,
+                'calculation_date' => $today->format('Y-m-d')
             ];
         }
         
@@ -1741,25 +1746,21 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $current_fy_start = new DateTime($fy_dates['start_date']);
         $is_previous_fy = $lodgement_date_obj < $current_fy_start;
         
-        // Check if application should be processed very soon (less than 15% of monthly rate)
-        $processing_threshold = $weighted_average * 0.15;
+        // Get case age statistics to check modal age
+        $age_stats = getCaseAgeStatistics($visa_type_id, $lodgement_date);
+
+        // Calculate if application is significantly older than mean age
         $is_overdue = false;
-
-        // Define overdue conditions:
-        // 1. Application is from previous FY AND
-        // 2. Either has very few cases ahead (less than 15% of monthly rate) OR has zero cases ahead
-        error_log("Checking overdue conditions:");
-        error_log("- Processing threshold (15% of $weighted_average): $processing_threshold");
-        error_log("- Cases ahead: " . $cases_ahead['total_ahead']);
-        error_log("- Is previous FY: " . ($is_previous_fy ? 'true' : 'false'));
-
-        if ($is_previous_fy && 
-            ($cases_ahead['total_ahead'] < $processing_threshold || $cases_ahead['total_ahead'] === 0)) {
-            $is_overdue = true;
-            error_log("Application marked as overdue because: " . 
-                ($cases_ahead['total_ahead'] > 0 ? 
-                    "cases ahead ({$cases_ahead['total_ahead']}) is less than 15% of processing rate ($processing_threshold)" :
-                    "application is from previous FY with no cases ahead"));
+        if ($age_stats && !isset($age_stats['error'])) {
+            $mean_age = $age_stats['mean_age'];
+            $current_age = $age_stats['reference_case']['age'];
+            $std_dev = $age_stats['std_dev'];
+            
+            // Check if application is more than 1 standard deviation older than mean age
+            $age_threshold = $mean_age + $std_dev;
+            $is_overdue = $current_age > $age_threshold;
+            
+            error_log("Overdue check: Current age: $current_age, Mean age: $mean_age, Std Dev: $std_dev, Threshold: $age_threshold, Is overdue: " . ($is_overdue ? 'true' : 'false'));
         }
 
         // Validate required data
@@ -1905,11 +1906,16 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         
         $is_very_overdue = $is_previous_fy && $prediction_date <= $tomorrow;
         
-        // Add overdue status to return array
+        // In the return array, add age statistics information
         return [
             'next_fy' => false,
             'is_overdue' => $is_overdue,
-            'processing_threshold' => $processing_threshold,
+            'age_stats' => [
+                'current_age' => $current_age ?? null,
+                'mean_age' => $mean_age ?? null,  // Changed from modal_age
+                'std_dev' => $std_dev ?? null,
+                'age_threshold' => $age_threshold ?? null
+            ],
             'latest_date' => $latest_date->format('Y-m-d'),
             'ninety_percent' => $ninety_percent->format('Y-m-d'),
             'eighty_percent' => $eighty_percent->format('Y-m-d'),
@@ -1920,8 +1926,8 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
             'weighted_average' => $weighted_average,
             'is_previous_fy' => $is_previous_fy,
             'is_very_overdue' => $is_very_overdue,
-            'current_fy_start' => $fy_dates['start_date'],  // Add this
-            'lodgement_date' => $lodgement_date,  // Add this too for consistency
+            'current_fy_start' => $fy_dates['start_date'],
+            'lodgement_date' => $lodgement_date,
             'priority_percentage_capped' => $original_priority_percentage > 0.25,
             'original_priority_percentage' => $original_priority_percentage,
             'application_age' => [
@@ -2422,6 +2428,429 @@ function getCaseAgeStatistics($visa_type_id, $lodgement_date = null) {
     } catch (Exception $e) {
         error_log("Error in getCaseAgeStatistics: " . $e->getMessage());
         return ['error' => 'Internal server error'];
+    }
+}
+
+/**
+ * Get Historical and Projected Grant Ages
+ * 
+ * @param int $visa_type_id The visa type ID
+ * @return array Historical and projected grant age data
+ */
+function getGrantAgeProjection($visa_type_id) {
+    global $conn;
+    
+    try {
+        // Get queue metrics using Little's Law
+        $queue_metrics = calculateLittlesLaw($visa_type_id, $application_date ?? null);
+        if (isset($queue_metrics['error'])) {
+            throw new Exception($queue_metrics['error']);
+        }
+
+        // Get existing data
+        $allocations = getAllocationsRemaining($visa_type_id);
+        $total_processed = getTotalProcessedToDate($visa_type_id);
+        $processing_rate = $queue_metrics['processing_rate']; // Use Little's Law processing rate
+        
+        // Calculate remaining places before cap
+        $remaining_places = $allocations['remaining'];
+        $total_allocation = $allocations['total_allocation'];
+        
+        // Get historical modal ages by month
+        $historical_query = "
+            WITH MonthlyProcessing AS (
+                SELECT 
+                    vl.lodged_month,
+                    curr.update_month,
+                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count,
+                    TIMESTAMPDIFF(MONTH, vl.lodged_month, curr.update_month) as age_at_grant
+                FROM visa_queue_updates curr
+                JOIN visa_lodgements vl ON curr.lodged_month_id = vl.id
+                LEFT JOIN visa_queue_updates prev 
+                    ON prev.lodged_month_id = curr.lodged_month_id
+                    AND prev.update_month = (
+                        SELECT MAX(update_month)
+                        FROM visa_queue_updates
+                        WHERE update_month < curr.update_month
+                        AND lodged_month_id = curr.lodged_month_id
+                    )
+                WHERE vl.visa_type_id = ?
+                AND prev.queue_count IS NOT NULL
+            ),
+            MonthlyTotals AS (
+                SELECT 
+                    DATE_FORMAT(update_month, '%Y-%m-01') as month,
+                    SUM(processed_count) as total_processed,
+                    SUM(SUM(processed_count)) OVER (ORDER BY DATE_FORMAT(update_month, '%Y-%m-01')) as running_total
+                FROM MonthlyProcessing
+                GROUP BY DATE_FORMAT(update_month, '%Y-%m-01')
+            ),
+            AgeGroups AS (
+                SELECT 
+                    DATE_FORMAT(update_month, '%Y-%m-01') as month,
+                    age_at_grant,
+                    SUM(processed_count) as count_at_age,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY DATE_FORMAT(update_month, '%Y-%m-01') 
+                        ORDER BY SUM(processed_count) DESC
+                    ) as rn
+                FROM MonthlyProcessing
+                GROUP BY 
+                    DATE_FORMAT(update_month, '%Y-%m-01'),
+                    age_at_grant
+            )
+            SELECT 
+                mt.month,
+                ag.age_at_grant as modal_age,
+                mt.total_processed as grants,
+                mt.running_total
+            FROM MonthlyTotals mt
+            LEFT JOIN AgeGroups ag ON mt.month = ag.month AND ag.rn = 1
+            ORDER BY mt.month DESC
+        ";
+
+        // Execute query and get historical data
+        $stmt = mysqli_prepare($conn, $historical_query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
+        $historical_data = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $historical_data[] = [
+                'month' => $row['month'],
+                'modal_age' => intval($row['modal_age']),
+                'grants' => intval($row['grants']),
+                'running_total' => intval($row['running_total']),
+                'allocation_status' => number_format(round($row['running_total'])) . " / " . number_format($total_allocation)
+            ];
+        }
+
+        // Get current queue state with age profile
+        $queue_query = "
+            WITH CurrentQueue AS (
+                SELECT 
+                    vl.lodged_month,
+                    vqu.queue_count,
+                    TIMESTAMPDIFF(MONTH, vl.lodged_month, CURRENT_DATE) as current_age
+                FROM visa_lodgements vl
+                JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+                WHERE vl.visa_type_id = ?
+                AND vqu.update_month = (
+                    SELECT MAX(update_month)
+                    FROM visa_queue_updates
+                    WHERE lodged_month_id = vl.id
+                )
+                AND vqu.queue_count > 0
+                ORDER BY lodged_month ASC
+            )
+            SELECT 
+                current_age,
+                SUM(queue_count) as total_in_age_group
+            FROM CurrentQueue
+            GROUP BY current_age
+            ORDER BY current_age ASC";  // Order by age ascending to process oldest first
+
+        $stmt = mysqli_prepare($conn, $queue_query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+
+        // Build queue data
+        $queue_data = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $queue_data[] = [
+                'age' => intval($row['current_age']),
+                'count' => intval($row['total_in_age_group'])
+            ];
+        }
+
+        // Project next 6 months using Little's Law metrics
+        $projected_data = [];
+        $current_date = new DateTime();
+        $current_date->modify('first day of this month');
+        
+        $cap_reached = false;
+        $running_total = $total_processed['total_processed'];
+        $remaining_queue = $queue_data;
+        
+        // Calculate expected waiting time per Little's Law
+        $waiting_time = $queue_metrics['waiting_time'];
+        $arrival_rate = $queue_metrics['arrival_rate'];
+        $initial_modal_age = $queue_data[0]['age'] ?? 0;
+
+        // Calculate the relationship between modal age and waiting time
+        $age_wait_ratio = $initial_modal_age / $waiting_time;
+
+        for ($i = 0; $i < 6; $i++) {
+            $projection_month = clone $current_date;
+            $projection_month->add(new DateInterval("P{$i}M"));
+            
+            if (!$cap_reached) {
+                // Age the entire queue by one month
+                $aged_queue = [];
+                foreach ($remaining_queue as $group) {
+                    $aged_queue[] = [
+                        'age' => $group['age'] + 1,
+                        'count' => $group['count']
+                    ];
+                }
+
+                // Add new arrivals at age 0
+                $aged_queue[] = [
+                    'age' => 0,
+                    'count' => round($arrival_rate)
+                ];
+
+                // Calculate how many visas will be processed this month
+                $month_processing = min(
+                    $processing_rate,
+                    $total_allocation - $running_total
+                );
+
+                if ($month_processing > 0) {
+                    // Process oldest applications first
+                    usort($aged_queue, function($a, $b) {
+                        return $b['age'] - $a['age'];  // Sort by age descending
+                    });
+
+                    $processed_cases = [];  // Track ages of processed cases
+                    $remaining_to_process = $month_processing;
+                    $updated_queue = [];
+
+                    foreach ($aged_queue as $group) {
+                        if ($remaining_to_process <= 0) {
+                            // No more processing needed, keep remaining cases
+                            $updated_queue[] = $group;
+                            continue;
+                        }
+
+                        $to_process = min($remaining_to_process, $group['count']);
+                        $remaining = $group['count'] - $to_process;
+
+                        // Record the ages of processed cases
+                        if ($to_process > 0) {
+                            $processed_cases[] = [
+                                'age' => $group['age'],
+                                'count' => $to_process
+                            ];
+                        }
+
+                        if ($remaining > 0) {
+                            $updated_queue[] = [
+                                'age' => $group['age'],
+                                'count' => $remaining
+                            ];
+                        }
+
+                        $remaining_to_process -= $to_process;
+                    }
+
+                    // Calculate modal age of processed cases
+                    usort($processed_cases, function($a, $b) {
+                        return $b['count'] - $a['count'];  // Sort by count descending
+                    });
+
+                    $modal_processing_age = $processed_cases[0]['age'] ?? 0;
+                    $total_processed = array_sum(array_column($processed_cases, 'count'));
+                    $remaining_queue = $updated_queue;
+                    $running_total += $total_processed;
+
+                    $projected_data[] = [
+                        'month' => $projection_month->format('Y-m-d'),
+                        'modal_age' => $modal_processing_age,  // Most common age of processed cases
+                        'grants' => $total_processed,
+                        'queue_size' => array_sum(array_column($updated_queue, 'count')),
+                        'allocation_status' => number_format(round($running_total)) . " / " . number_format($total_allocation),
+                        'expected_wait' => round(array_sum(array_column($updated_queue, 'count')) / $processing_rate, 1),
+                        'system_utilization' => round($queue_metrics['utilization'], 1)
+                    ];
+
+                    if ($running_total >= $total_allocation) {
+                        $cap_reached = true;
+                    }
+                }
+            }
+            
+            if ($cap_reached) {
+                // Even when cap is reached, age the remaining applications
+                $remaining_queue = array_map(function($item) {
+                    return [
+                        'age' => $item['age'] + 1,
+                        'count' => $item['count']
+                    ];
+                }, $remaining_queue);
+
+                usort($remaining_queue, function($a, $b) {
+                    return $b['count'] - $a['count'];
+                });
+
+                // Make sure we include all the same keys as non-cap-reached scenario
+                $projected_data[] = [
+                    'month' => $projection_month->format('Y-m-d'),
+                    'modal_age' => $remaining_queue[0]['age'] ?? 0,
+                    'grants' => 0,
+                    'queue_size' => array_sum(array_column($remaining_queue, 'count')),
+                    'allocation_status' => number_format($total_allocation) . " / " . number_format($total_allocation),
+                    'expected_wait' => round(array_sum(array_column($remaining_queue, 'count')) / $processing_rate, 1),
+                    'system_utilization' => round($queue_metrics['utilization'], 1),
+                    'note' => 'Processing suspended until next FY'
+                ];
+            }
+        }
+
+        return [
+            'historical' => $historical_data,
+            'projected' => $projected_data,
+            'processing_rate' => $processing_rate,
+            'queue_metrics' => $queue_metrics,
+            'allocation_info' => [
+                'total_allocation' => $total_allocation,
+                'remaining_places' => $remaining_places,
+                'cap_reached' => $cap_reached
+            ]
+        ];
+    } catch (Exception $e) {
+        error_log("Error in getGrantAgeProjection: " . $e->getMessage());
+        return ['error' => 'Internal server error'];
+    }
+}
+
+function calculateProcessingDistribution($queue, $target_processing, $avg_processing_age) {
+    // Sort queue by age
+    usort($queue, function($a, $b) {
+        return $b['age'] - $a['age'];
+    });
+
+    // Calculate normal distribution around average processing age
+    $std_dev = 3; // Standard deviation of 3 months
+    $distribution = [];
+    $total_weight = 0;
+
+    foreach ($queue as $group) {
+        // Calculate probability based on normal distribution
+        $z_score = ($group['age'] - $avg_processing_age) / $std_dev;
+        $probability = exp(-0.5 * pow($z_score, 2)) / ($std_dev * sqrt(2 * M_PI));
+        
+        // Adjust probability based on age (older cases get higher priority)
+        $age_factor = 1 + ($group['age'] / $avg_processing_age);
+        $weight = $probability * $age_factor;
+        
+        $distribution[$group['age']] = $weight;
+        $total_weight += $weight;
+    }
+
+    // Normalize distribution to match target processing
+    $processing_distribution = [];
+    foreach ($distribution as $age => $weight) {
+        $processing_distribution[$age] = round(($weight / $total_weight) * $target_processing);
+    }
+
+    return $processing_distribution;
+}
+
+function calculateAverageProcessingAge($visa_type_id) {
+    global $conn;
+    
+    // Query to get average processing age from recent grants
+    $query = "
+        WITH ProcessedCases AS (
+            SELECT 
+                TIMESTAMPDIFF(MONTH, vl.lodged_month, vqu.update_month) as processing_age,
+                prev.queue_count - vqu.queue_count as processed_count
+            FROM visa_queue_updates vqu
+            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+            JOIN visa_queue_updates prev ON prev.lodged_month_id = vl.id
+            WHERE vl.visa_type_id = ?
+            AND vqu.update_month > DATE_SUB(CURRENT_DATE, INTERVAL 3 MONTH)
+            AND prev.update_month = (
+                SELECT MAX(update_month)
+                FROM visa_queue_updates
+                WHERE update_month < vqu.update_month
+                AND lodged_month_id = vl.id
+            )
+            AND prev.queue_count > vqu.queue_count
+        )
+        SELECT 
+            AVG(processing_age) as avg_age
+        FROM ProcessedCases";
+
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $row = mysqli_fetch_assoc($result);
+
+    return round($row['avg_age'] ?? 20, 1); // Default to 20 months if no data
+}
+
+function calculateLittlesLaw($visa_type_id, $application_date = null) {
+    global $conn;
+    
+    try {
+        // Get current queue length (L)
+        $queue_length = getVisasOnHand($visa_type_id);
+        
+        // Get cases ahead if application date is provided
+        $cases_ahead = 0;
+        if ($application_date) {
+            $cases_ahead = getCasesAheadInQueue($visa_type_id, $application_date);
+            $cases_ahead = $cases_ahead['estimated_current_ahead'] ?? $queue_length;
+        }
+        
+        // Calculate arrival rate (λ) - average new applications per month
+        $arrival_query = "
+            WITH MonthlyArrivals AS (
+                SELECT 
+                    DATE_FORMAT(lodged_month, '%Y-%m-01') as month,
+                    SUM(first_count_volume) as new_applications
+                FROM visa_lodgements
+                WHERE visa_type_id = ?
+                AND lodged_month >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
+                GROUP BY DATE_FORMAT(lodged_month, '%Y-%m-01')
+            )
+            SELECT AVG(new_applications) as avg_arrival_rate
+            FROM MonthlyArrivals";
+        
+        $stmt = mysqli_prepare($conn, $arrival_query);
+        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $arrival_rate = mysqli_fetch_assoc($result)['avg_arrival_rate'];
+        
+        // Get processing rate (μ) - average processed per month
+        $processing_rate = getWeightedAverageProcessingRate($visa_type_id);
+        
+        // Calculate waiting time based on cases ahead (if available)
+        $waiting_time = $application_date ? 
+            $cases_ahead / $processing_rate : 
+            $queue_length / $processing_rate;
+        
+        // Calculate system utilization (ρ)
+        $utilization = $arrival_rate / $processing_rate;
+        
+        $metrics = [
+            'queue_length' => $queue_length,
+            'cases_ahead' => $cases_ahead,
+            'arrival_rate' => round($arrival_rate, 2),
+            'processing_rate' => round($processing_rate, 2),
+            'waiting_time' => round($waiting_time, 1),
+            'utilization' => round($utilization * 100, 1),
+            'is_stable' => $utilization < 1,
+            'expected_growth' => $arrival_rate > $processing_rate ? 
+                round(($arrival_rate - $processing_rate) * 12, 0) : 0
+        ];
+        
+        if ($utilization > 1) {
+            $metrics['queue_growth_rate'] = $arrival_rate - $processing_rate;
+            $metrics['backlog_months'] = ceil($queue_length / ($processing_rate - $arrival_rate));
+        }
+        
+        return $metrics;
+        
+    } catch (Exception $e) {
+        error_log("Error in calculateLittlesLaw: " . $e->getMessage());
+        return ['error' => 'Error calculating queue metrics'];
     }
 }
 

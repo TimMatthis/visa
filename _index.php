@@ -82,13 +82,12 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
 
       gtag('config', 'G-7BJ2GHZFM8');
     </script>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4468022517932915"
-     crossorigin="anonymous"></script>
-
-
 </head>
 
 <body>
+    <!-- Add this right after the body tag -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    
     <!-- Add site name banner -->
     <div class="site-banner">
         <div class="site-banner-content">
@@ -119,7 +118,7 @@ error_log("Date bounds - Min: $min_date, Max: $max_date");
         <!-- Add tab buttons -->
         <div class="main-tabs">
             <button class="main-tab-btn active" onclick="openTab('predictor')">YOUR APPLICATION</button>
-            <button class="main-tab-btn" onclick="openTab('stats')">PREDICTION</button>
+            <button class="main-tab-btn" onclick="openTab('stats')" id="statsTab" disabled>PREDICTION</button>
         </div>
 
         <!-- Predictor Tab -->
@@ -222,7 +221,7 @@ Select your visa type and application date to get an estimated processing timeli
 
         <!-- Stats Tab -->
         <div id="stats" class="main-tab-content">
-            <div class="breadcrumb" id="statsBreadcrumb" style="display: none;">
+            <div class="breadcrumb" id="statsBreadcrumb">
                 <span id="visaTypeBreadcrumb"></span> • 
                 <span id="applicationDateBreadcrumb"></span>
             </div>
@@ -276,6 +275,15 @@ Select your visa type and application date to get an estimated processing timeli
             document.getElementById('visaType').addEventListener('change', function() {
                 updateDateBounds(this.value);
             });
+
+            // Add change event listeners to all form fields
+            document.getElementById('visaType').addEventListener('change', checkFormCompletion);
+            document.getElementById('applicationYear').addEventListener('change', checkFormCompletion);
+            document.getElementById('applicationMonth').addEventListener('change', checkFormCompletion);
+            document.getElementById('applicationDay').addEventListener('change', checkFormCompletion);
+            
+            // Initial check
+            checkFormCompletion();
         });
 
         function updateDateBounds(visaTypeId) {
@@ -364,6 +372,11 @@ Select your visa type and application date to get an estimated processing timeli
 
         // Tab functionality
         function openTab(tabName) {
+            // If trying to open stats tab and it's disabled, return early
+            if (tabName === 'stats' && document.getElementById('statsTab').disabled) {
+                return;
+            }
+
             const tabContents = document.getElementsByClassName('main-tab-content');
             const tabButtons = document.getElementsByClassName('main-tab-btn');
 
@@ -386,7 +399,7 @@ Select your visa type and application date to get an estimated processing timeli
                     if (celebrationMessage) {
                         celebrateVisa();
                     }
-                }, 500); // Small delay to ensure content is loaded
+                }, 500);
             }
         }
 
@@ -406,18 +419,17 @@ Select your visa type and application date to get an estimated processing timeli
             // Switch to stats tab
             openTab('stats');
             
-            // Update breadcrumb
+            // Update and show breadcrumbs
             const visaSelect = document.getElementById('visaType');
-            const visaText = visaSelect.options[visaSelect.selectedIndex].text;
-            const year = document.getElementById('applicationYear').value;
-            const month = document.getElementById('applicationMonth').value;
+            const selectedVisa = visaSelect.options[visaSelect.selectedIndex].text;
             const day = document.getElementById('applicationDay').value;
+            const month = document.getElementById('applicationMonth').value;
+            const year = document.getElementById('applicationYear').value;
             
-            document.getElementById('visaTypeBreadcrumb').textContent = `Visa ${visaText}`;
-            document.getElementById('applicationDateBreadcrumb').textContent = 
-                `Applied on ${formatDate(year, month, day)}`;
+            document.getElementById('visaTypeBreadcrumb').textContent = selectedVisa;
+            document.getElementById('applicationDateBreadcrumb').textContent = formatDate(year, month, day);
             document.getElementById('statsBreadcrumb').style.display = 'block';
-
+            
             // Show loading indicator
             const loadingIndicator = document.querySelector('.loading-indicator');
             const statsContent = document.getElementById('statsContent');
@@ -434,9 +446,17 @@ Select your visa type and application date to get an estimated processing timeli
             })
             .then(response => response.text())
             .then(data => {
-                // Hide loading indicator and show results
                 loadingIndicator.style.display = 'none';
                 statsContent.innerHTML = data;
+                
+                // Add event listener for chart data
+                window.addEventListener('chartDataReady', function(e) {
+                    console.log('Chart data ready event received:', e.detail);
+                    if (e.detail) {
+                        window.chartData = e.detail;
+                        initializeChart();
+                    }
+                }, { once: true });
             })
             .catch(error => {
                 loadingIndicator.style.display = 'none';
@@ -516,6 +536,101 @@ Select your visa type and application date to get an estimated processing timeli
             // Change slide every 5 seconds
             setInterval(nextSlide, 5000);
         });
+
+        // Replace the existing initializeChart function with this updated version
+        function initializeChart() {
+            const canvas = document.getElementById('ageHistogram');
+            if (!canvas) {
+                console.error('Canvas element not found');
+                return;
+            }
+
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js not loaded');
+                return;
+            }
+
+            if (!window.chartData) {
+                console.error('Chart data not available');
+                return;
+            }
+
+            try {
+                // Clear any existing chart
+                const existingChart = Chart.getChart(canvas);
+                if (existingChart) {
+                    existingChart.destroy();
+                }
+
+                const ctx = canvas.getContext('2d');
+                const chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: window.chartData.labels,
+                        datasets: [{
+                            label: 'Number of Applications',
+                            data: window.chartData.counts,
+                            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                            borderColor: 'rgb(54, 162, 235)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Applications'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Age in Months'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Application Age Distribution'
+                            }
+                        }
+                    }
+                });
+                console.log('Chart created successfully');
+            } catch (error) {
+                console.error('Error creating chart:', error);
+            }
+        }
+
+        // Add this function after your existing JavaScript functions
+        function checkFormCompletion() {
+            const visaType = document.getElementById('visaType').value;
+            const applicationYear = document.getElementById('applicationYear').value;
+            const applicationMonth = document.getElementById('applicationMonth').value;
+            const applicationDay = document.getElementById('applicationDay').value;
+            
+            const statsTab = document.getElementById('statsTab');
+            
+            // Enable the stats tab only if all fields are filled
+            if (visaType && applicationYear && applicationMonth && applicationDay) {
+                statsTab.disabled = false;
+            } else {
+                statsTab.disabled = true;
+                // If the stats tab is currently active, switch back to predictor
+                if (document.getElementById('stats').classList.contains('active')) {
+                    openTab('predictor');
+                }
+            }
+        }
     </script>
 
     <!-- Add this before </body> -->

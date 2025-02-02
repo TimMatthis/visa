@@ -11,6 +11,9 @@ $application_day = $_POST['applicationDay'] ?? null;
 // Initialize $age_stats as null
 $age_stats = null;
 
+// Initialize $days_past with a default value
+$days_past = 0;
+
 if (!$visa_type_id) {
     echo '<div class="error-message">Visa type is required</div>';
     exit;
@@ -102,8 +105,8 @@ function generateShareMessage($prediction, $application_age = null, $months_away
     $shareMessage = "🚀 WhenAmIGoing? Visa Tracker Update 🚀\n\n";
     
     if (($prediction['is_overdue'] ?? false)) {
-        $shareMessage .= "⚠️ ATTENTION: Application Requires Review ⚠️\n\n";
-        $shareMessage .= "📋 Your application should have been processed as it is at or near the front of the queue.\n";
+        $shareMessage .= "🔍 Important Update: Expected Grant\n\n";
+        $shareMessage .= "📋 We believe your application should have already been granted based on our analysis of the queue and processing patterns.\n";
         $shareMessage .= "⏰ Status: OVERDUE\n";
         if (isset($application_age)) {
             $shareMessage .= "⌛ Processing for: {$application_age->y} years and {$application_age->m} months\n";
@@ -164,19 +167,30 @@ function generateShareMessage($prediction, $application_age = null, $months_away
     // Encode the message for URL
     return rawurlencode($shareMessage);
 }
+
+// Add CSS classes for table styling
 ?>
+
+<style>
+    .real-data-table {
+        background-color: #e0f7e0; /* Light green */
+    }
+    .forecast-data-table {
+        background-color: #ffe0b3; /* Light orange */
+    }
+</style>
 
 <div class="stats-grid">
     <?php if (isset($prediction) && !isset($prediction['error'])): ?>
         <?php if (($prediction['is_overdue'] ?? false)): ?>
-            <!-- Warning Alert Card - Shows First -->
-            <div class="stat-card prediction-highlight overdue-alert">
+            <!-- Updated Message Card -->
+            <div class="stat-card prediction-highlight expected-grant-alert">
                 <div class="stat-header">
-                    <h3>⚠️ Important Notice: Overdue Application</h3>
+                    <h3>🔍 Important Update: Expected Grant</h3>
                 </div>
                 <div class="stat-body">
-                    <div class="overdue-message">
-                        <div class="stat-label">Your application should have been processed as it is at or near the front of the queue. This may indicate a processing delay or technical issue that needs attention.</div>
+                    <div class="expected-grant-message">
+                        <div class="stat-label">Congratulations! We believe your application should have already been granted based on our analysis of the queue and processing patterns.</div>
                         <div class="prediction-details">
                             <div class="detail-item">
                                 <span class="label">Application Date:</span>
@@ -188,7 +202,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                             </div>
                         </div>
                         <div class="action-recommendation">
-                            <p class="urgent-text">Recommended Actions:</p>
+                            <p class="reassuring-text">If your visa hasn't been granted yet, here are some steps you can take:</p>
                             <ol class="action-steps">
                                 <li>Contact your registered migration agent to review your case</li>
                                 <li>If you don't have an agent, consider engaging one to help resolve any potential issues</li>
@@ -218,7 +232,6 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                     </a>
                 </div>
             </div>
-
             <div class="spacer"></div>
         <?php endif; ?>
 
@@ -304,7 +317,6 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                     <?php elseif (isset($months_away) && $months_away <= 3): ?>
                         <!-- Less than 3 months celebration message -->
                         <div class="celebration-message">
-                            <div class="stat-number bounce-animation">Less than 3 months to go!</div>
                             <?php
                             $today = new DateTime();
                             $grant_date = new DateTime($prediction['eighty_percent']);
@@ -338,8 +350,15 @@ function generateShareMessage($prediction, $application_age = null, $months_away
                                 $days_remaining = $today->diff($grant_date)->days;
                                 $weekends_remaining = floor($days_remaining / 7);
                                 ?>
+                                <div class="stat-number bounce-animation">
+                                    <?php if ($days_past <= 30): ?>
+                                        <!-- Remove "Less than 3 months to go!" text when grant is imminent -->
+                                    <?php else: ?>
+                                        Less than 3 months to go!
+                                    <?php endif; ?>
+                                </div>
                                 <div class="countdown-weeks">
-                                    In fact, it's only <?php echo $days_remaining; ?> days until your likely grant date!
+                                    We think that it's only <?php echo $days_remaining; ?> days until your likely grant date!
                                     <div class="weekends-note">
                                         That's <?php echo $weekends_remaining; ?> more weekends to see your friends and get things ready to go 🤗
                                     </div>
@@ -464,6 +483,196 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             </div>
         <?php endif; ?>
     
+        <div class="stat-card interpretation">
+            <div class="stat-header">
+                <h3>Understanding Visa Age and Prediction Dates</h3>
+                <span class="stat-date"><?php echo date('j F Y', strtotime($application_date)); ?></span>
+            </div>
+            <div class="stat-body">
+                <div class="age-comparison-grid">
+                    <!-- Key Ages Summary -->
+                    <div class="age-comparison-item">
+                        <span class="label">Current Application Age:</span>
+                        <span class="value"><?php echo $age_stats['reference_case']['age']; ?> months</span>
+                    </div>
+                    <div class="age-comparison-item">
+                        <span class="label">Most Common Grant Age:</span>
+                        <span class="value"><?php echo $age_stats['modal_age']; ?> months</span>
+                    </div>
+                    <div class="age-comparison-item">
+                        <span class="label">Predicted Age at Grant:</span>
+                        <span class="value">
+                            <?php 
+                            $predicted_grant_date = new DateTime($prediction['eighty_percent']);
+                            $lodgement_date = new DateTime($prediction['lodgement_date']);
+                            $predicted_age_months = ($predicted_grant_date->diff($lodgement_date)->days) / 30.44;
+                            echo number_format($predicted_age_months, 1) . " months";
+                            ?>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="age-analysis">
+                    <?php
+                    $modal_difference = $age_stats['reference_case']['age'] - $age_stats['modal_age'];
+                    $std_dev = $age_stats['std_dev'];
+                    $is_late = $modal_difference > $std_dev;
+                    ?>
+                    
+                    <div class="age-status <?php echo $is_late ? 'status-late' : ''; ?>">
+                        <h4>Current Status:</h4>
+                        <p>
+                            Your application is <strong><?php echo abs($modal_difference); ?> months 
+                            <?php echo $modal_difference > 0 ? 'older' : 'younger'; ?></strong> 
+                            than the most common grant age.
+                            <?php if ($is_late): ?>
+                                <span class="late-indicator">
+                                    ⚠️ Your application is more than one standard deviation (<?php echo number_format($std_dev, 1); ?> months) 
+                                    older than typical processing patterns
+                                </span>
+                            <?php endif; ?>
+                        </p>
+                    </div>
+
+                    <div class="prediction-comparison">
+                        <h4>Looking Ahead:</h4>
+                        <p>
+                            Based on current processing rates, your application is predicted to be 
+                            <strong><?php echo number_format($predicted_age_months, 1); ?> months old</strong> 
+                            when granted, which will be 
+                            <strong><?php echo number_format($predicted_age_months - $age_stats['modal_age'], 1); ?> months 
+                            <?php echo ($predicted_age_months - $age_stats['modal_age']) > 0 ? 'older' : 'younger'; ?></strong> 
+                            than today's most common grant age.
+                        </p>
+                    </div>
+
+                    <div class="important-note">
+                        <h4>⚠️ Important Note About Processing Times</h4>
+                        <p>Application age alone does not determine processing order. Your position in the queue and the Department's processing rates are the key factors in predicting your grant date.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add this after the "Understanding Visa Age and Prediction Dates" card -->
+        <div class="stat-card full-width-card">
+            <div class="stat-header">
+                <h3>Grant Age Trends and Projections</h3>
+                <span class="stat-date">Historical and Projected Data</span>
+            </div>
+            <div class="stat-body grant-age-tables">
+                <?php
+                $age_projection = getGrantAgeProjection($visa_type_id);
+                if (!isset($age_projection['error'])):
+                ?>
+                    <!-- Historical Data Table -->
+                    <div class="historical-data">
+                        <h4>Historical Grant Ages</h4>
+                        <table class="grant-age-table real-data-table">
+                            <thead>
+                                <tr>
+                                    <th>Month</th>
+                                    <th>Total Processed / Allocation</th>
+                                    <th>Grants Processed</th>
+                                    <th>Most Common Age at Grant</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($age_projection['historical'] as $data): ?>
+                                    <tr>
+                                        <td><?php echo date('F Y', strtotime($data['month'])); ?></td>
+                                        <td><?php echo $data['allocation_status']; ?></td>
+                                        <td><?php echo number_format($data['grants']); ?></td>
+                                        <td><?php echo $data['modal_age']; ?> months</td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Projected Data Table -->
+                    <div class="projected-data">
+                        <h4>Projected Grant Ages</h4>
+                        <p class="processing-rate">Based on current processing rate of <?php echo number_format($age_projection['processing_rate']); ?> cases per month</p>
+                        <table class="grant-age-table forecast-data-table">
+                            <thead>
+                                <tr>
+                                    <th>Month</th>
+                                    <th>Total Processed / Allocation</th>
+                                    <th>If grant rate remains at</th>
+                                    <th>Projected Most Common Age</th>
+                                    <th>Remaining Queue Size</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($age_projection['projected'] as $data): ?>
+                                    <tr>
+                                        <td><?php echo date('F Y', strtotime($data['month'])); ?></td>
+                                        <td><?php echo $data['allocation_status']; ?></td>
+                                        <td>
+                                            <?php if (isset($data['note'])): ?>
+                                                <?php echo $data['note']; ?>
+                                            <?php else: ?>
+                                                <?php echo number_format($data['grants']); ?>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?php echo $data['modal_age']; ?> months</td>
+                                        <td><?php echo number_format($data['queue_size']); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <div class="error-message">Unable to load grant age projection data.</div>
+                <?php endif; ?>
+            </div>
+            <div class="stat-footer">
+                <div class="stat-note">
+                    Historical data shows actual average grant ages. Projections are based on current processing rates and queue composition.
+                </div>
+            </div>
+        </div>
+        <?php if (isset($cases_ahead) && !isset($cases_ahead['error'])): ?>
+        <div class="stat-card cases-ahead one-third-card">
+            <div class="stat-header">
+                <h3>Cases Ahead in Queue</h3>
+                <span class="stat-date">Estimated as of <?php echo date('j F Y'); ?></span>
+            </div>
+            <div class="stat-body">
+                <div class="stat-numbers">
+                    <div class="current-estimate">
+                        <div class="stat-number"><?php echo number_format($cases_ahead['estimated_current_ahead']); ?></div>
+                        <div class="stat-label">Estimated Current Position</div>
+                    </div>
+                    <div class="last-update">
+                        <div class="stat-number"><?php echo number_format($cases_ahead['total_ahead']); ?></div>
+                        <div class="stat-label">Position as of <?php echo date('j F Y', strtotime($cases_ahead['latest_update'])); ?></div>
+                    </div>
+                </div>
+                <div class="estimate-details">
+                    <div class="detail-item">
+                        <span class="label">Processing Rate:</span>
+                        <span class="value"><?php echo number_format($cases_ahead['monthly_processing_rate']); ?> per month</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">Processed Since Update:</span>
+                        <span class="value">~<?php echo number_format($cases_ahead['estimated_processed_since_update']); ?></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">Days Since Update:</span>
+                        <span class="value"><?php echo number_format($cases_ahead['days_since_update']); ?> days</span>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-footer">
+                <div class="stat-note">
+                    Current position is estimated based on processing rate of <?php echo number_format($cases_ahead['monthly_processing_rate']); ?> cases per month
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>   
+    
 
     <!-- Current Visa Queue card -->
     <div class="stat-card one-third-card">
@@ -479,6 +688,50 @@ function generateShareMessage($prediction, $application_age = null, $months_away
             <div class="stat-note">Total applications being processed across all lodgement months. This is often referred to Visas on-and</div>
         </div>
     </div>
+
+    <?php if (isset($application_date)): ?>
+        <?php 
+        if (!isset($age_stats['error'])):
+        ?>
+
+        <div class="stat-card age-distribution one-third-card">
+            <div class="stat-header">
+                <h3>Processing Age Distribution</h3>
+                <span class="stat-date"><?php echo $age_stats['financial_year']; ?></span>
+            </div>
+            <div class="stat-body">
+                <div class="stats-grid">
+                    <div class="stat-column">
+                        <h4>Processing Age Distribution</h4>
+                        <div class="stat-row">
+                            <span class="label">Mean Age at Grant:</span>
+                            <span class="value"><?php echo $age_stats['mean_age']; ?> months</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Most Common Age (Mode):</span>
+                            <span class="value"><?php echo $age_stats['modal_age']; ?> months</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Standard Deviation:</span>
+                            <span class="value">±<?php echo $age_stats['std_dev']; ?> months</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Typical Range (±1 SD):</span>
+                            <span class="value"><?php echo $age_stats['std_dev_range']['lower']; ?> to <?php echo $age_stats['std_dev_range']['upper']; ?> months</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="stat-footer">
+                <div class="stat-note">Based on cases lodged during <?php echo $allocations_remaining['financial_year']; ?></div>
+            </div>  
+        </div>
+
+             
+        
+       
+        <?php endif; ?>
+
 
     <div class="stat-card processing-history one-third-card">
         <div class="stat-header">
@@ -561,21 +814,7 @@ function generateShareMessage($prediction, $application_age = null, $months_away
         </div>
     </div>
     
-    <?php if (isset($cases_ahead) && !isset($cases_ahead['error'])): ?>
-        <div class="stat-card cases-ahead one-third-card">
-            <div class="stat-header">
-                <h3>Cases Ahead in Queue</h3>
-                <span class="stat-date">As of <?php echo date('j F Y', strtotime($cases_ahead['latest_update'])); ?></span>
-            </div>
-            <div class="stat-body">
-                <div class="stat-number"><?php echo number_format($cases_ahead['total_ahead']); ?></div>
-                <div class="stat-label">Applications Lodged Before <?php echo date('j F Y', strtotime($cases_ahead['lodgement_date'])); ?></div>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Based on current queue numbers for earlier lodgement months</div>
-            </div>
-        </div>
-    <?php endif; ?>
+    
 
     <div class="stat-card total-processed one-third-card">
         <div class="stat-header">
@@ -669,266 +908,13 @@ function generateShareMessage($prediction, $application_age = null, $months_away
     
     <?php endif; ?>
 
-    <?php if (isset($application_date)): ?>
-        <?php 
-        if (!isset($age_stats['error'])):
-        ?>
-
-        <div class="stat-card age-distribution one-third-card">
-            <div class="stat-header">
-                <h3>Processing Age Distribution</h3>
-                <span class="stat-date"><?php echo $age_stats['financial_year']; ?></span>
-            </div>
-            <div class="stat-body">
-                <div class="stats-grid">
-                    <div class="stat-column">
-                        <h4>Processing Age Distribution</h4>
-                        <div class="stat-row">
-                            <span class="label">Mean Age at Grant:</span>
-                            <span class="value"><?php echo $age_stats['mean_age']; ?> months</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Most Common Age (Mode):</span>
-                            <span class="value"><?php echo $age_stats['modal_age']; ?> months</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Standard Deviation:</span>
-                            <span class="value">±<?php echo $age_stats['std_dev']; ?> months</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Typical Range (±1 SD):</span>
-                            <span class="value"><?php echo $age_stats['std_dev_range']['lower']; ?> to <?php echo $age_stats['std_dev_range']['upper']; ?> months</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Based on cases lodged during <?php echo $allocations_remaining['financial_year']; ?></div>
-            </div>  
-        </div>
-
-             
-        
-        <div class="stat-card interpretation one-third-card">
-            <div class="stat-body">                    
-                <div class="stat-header">
-                    <h3>Your Application</h3>
-                    <span class="stat-date"><?php echo $application_date = $_POST['applicationDay'] . '-' . $_POST['applicationMonth'] . '-' . $_POST['applicationYear']; ?></span>
-                </div>
-                <div class="stat-column">
-                    <div class="stat-row">
-                        <span class="label">Your Application Age:</span>
-                        <span class="value"><?php echo $age_stats['reference_case']['age']; ?> months old</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="label">Compared to Other Cases:</span>
-                        <span class="value">Older than <?php echo $age_stats['reference_case']['percentile']; ?>% of recent grants</span>
-                    </div>
-                </div>
-
-                <div class="interpretation-section">
-                    <h4>What Does This Mean?</h4>
-                    <div class="interpretation-text">
-                        <p class="key-point">
-                            Your application is <?php echo $age_stats['reference_case']['age']; ?> months old, which is 
-                            <?php echo abs($age_stats['interpretation']['mode_difference']); ?> months older than the 
-                            most commonly granted applications (<?php echo $age_stats['modal_age']; ?> months).
-                        </p>
-                        
-                        <div class="important-warning">
-                            <h5>⚠️ Important Note About Processing Times</h5>
-                            <p>
-                                The age of recently granted visas does not predict when your visa will be granted. This is because:
-                            </p>
-                            <ul>
-                                <li>Processing depends on your position in the queue, not just your application's age</li>
-                                <li>If the queue grows faster than processing rates, average ages will increase</li>
-                                <li>The Department may process applications in various orders based on different priorities</li>
-                            </ul>
-                            <p>
-                                For the most accurate prediction of your grant date, refer to the queue position and processing rate 
-                                calculations shown in the prediction card above.
-                            </p>
-                        </div>
-
-                        <div class="statistical-note">
-                            <p>
-                                While the average (mean) age at grant is <?php echo $age_stats['mean_age']; ?> months, 
-                                this number is pulled higher by older cases and priority processing. The most common 
-                                grant age of <?php echo $age_stats['modal_age']; ?> months gives a better picture of 
-                                typical processing patterns.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
+    
     <?php endif; ?>
 
   
-    <?php if (isset($prediction) && isset($age_stats) && !isset($prediction['error']) && !isset($age_stats['error'])): ?>
-        <div class="stat-card queue-age-relationship full-width-card">
-            <div class="stat-header">
-                <h3>Understanding Processing Age & Queue Position</h3>
-            </div>
-            <div class="stat-body">
-                <?php
-                // Calculate the predicted age at grant
-                $predicted_grant_date = new DateTime($prediction['eighty_percent']);
-                $lodgement_date = new DateTime($prediction['lodgement_date']);
-                $predicted_age_months = ($predicted_grant_date->diff($lodgement_date)->days) / 30.44;
-                
-                // Compare with modal age
-                $modal_age = $age_stats['modal_age'];
-                $age_difference = $predicted_age_months - $modal_age;
-                ?>
-                
-                <div class="age-prediction-summary">
-                    <div class="prediction-stats">
-                        <div class="stat-item">
-                            <span class="label">Your Predicted Age at Grant:</span>
-                            <span class="value"><?php echo number_format($predicted_age_months, 1); ?> months</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="label">Current Modal Processing Age:</span>
-                            <span class="value"><?php echo number_format($modal_age, 1); ?> months</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="label">Difference:</span>
-                            <span class="value <?php echo $age_difference > 0 ? 'older' : 'younger'; ?>">
-                                <?php echo $age_difference > 0 ? '+' : ''; ?><?php echo number_format($age_difference, 1); ?> months
-                            </span>
-                        </div>
-                    </div>
+    
 
-                    <div class="age-explanation">
-                        <?php if ($age_difference > 0): ?>
-                            <h4>Why Your Predicted Age is Higher Than Current Processing Age</h4>
-                            <div class="explanation-content">
-                                <p>Based on current queue position and processing rates, your application is predicted to be 
-                                <strong><?php echo number_format($predicted_age_months, 1); ?> months old</strong> when granted. 
-                                This is <strong><?php echo number_format($age_difference, 1); ?> months older</strong> than the 
-                                current most common processing age of <?php echo number_format($modal_age, 1); ?> months. The Department's 
-                                90th percentile processing time typically aligns with the most common processing age, so as applications 
-                                like yours continue to age in the queue, we expect both the modal processing age and the official 90th 
-                                percentile processing time to increase to match your predicted grant age.</p>
-
-                                <div class="key-concepts">
-                                    <h5>Important Concepts to Understand:</h5>
-                                    <ol>
-                                        <li>
-                                            <strong>Queue Movement & Processing Times:</strong> As applications age in the queue, both the 
-                                            typical processing age and official processing times naturally increase to reflect this aging.
-                                        </li>
-                                        <li>
-                                            <strong>90th Percentile Alignment:</strong> The Department's published 90th percentile processing 
-                                            time usually matches the most common grant age, providing a reliable benchmark.
-                                        </li>
-                                        <li>
-                                            <strong>Dynamic Nature:</strong> Both your application's age and the Department's processing 
-                                            times will likely converge as the queue progresses.
-                                        </li>
-                                    </ol>
-                                </div>
-
-                                <div class="practical-example">
-                                    <h5>How This Works:</h5>
-                                    <ul>
-                                        <li>Current modal processing age: <?php echo number_format($modal_age, 1); ?> months</li>
-                                        <li>Your predicted age at grant: <?php echo number_format($predicted_age_months, 1); ?> months</li>
-                                        <li>As the queue processes, both these numbers will likely increase together</li>
-                                        <li>The Department's official processing times will likely adjust to reflect this progression</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <h4>Your Application is Tracking Well</h4>
-                            <div class="explanation-content">
-                                <p>Good news! Your application is predicted to be processed at 
-                                <strong><?php echo number_format($predicted_age_months, 1); ?> months</strong>, which is 
-                                actually <?php echo number_format(abs($age_difference), 1); ?> months younger than the 
-                                current most common processing age of <?php echo number_format($modal_age, 1); ?> months.</p>
-
-                                <div class="key-concepts">
-                                    <h5>What This Means:</h5>
-                                    <ul>
-                                        <li>Your application is likely to be processed faster than the current typical timeline</li>
-                                        <li>This could be due to various factors like queue position or processing rate improvements</li>
-                                        <li>Keep monitoring for any changes in processing patterns</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <?php if (isset($age_stats) && !isset($age_stats['error'])): ?>
-        <div class="stat-card full-width-card">
-            <div class="stat-header">
-                <h3>Application Age Distribution</h3>
-                <span class="stat-date"><?php echo $age_stats['financial_year']; ?></span>
-            </div>
-            <div class="stat-body chart-container" style="position: relative; height:400px; width:100%">
-                <canvas id="ageHistogram"></canvas>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Distribution of application ages at grant time for <?php echo $age_stats['financial_year']; ?></div>
-            </div>
-        </div>
-
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Initializing chart...');
-
-            <?php if (isset($age_stats) && !isset($age_stats['error'])): ?>
-                console.log('Age stats found:', <?php echo json_encode($age_stats); ?>);
-                
-                const canvas = document.getElementById('ageHistogram');
-                if (!canvas) {
-                    console.error('Canvas not found, cannot render chart.');
-                    return;
-                }
-                const ctx = canvas.getContext('2d');
-                const distributionData = <?php echo json_encode($age_stats['distribution'] ?? []); ?>;
-                console.log('Distribution Data:', distributionData);
-
-                new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: distributionData.labels || [],
-                        datasets: [{
-                            label: 'Number of Applications',
-                            data: distributionData.counts || [],
-                            backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                            borderColor: 'rgb(54, 162, 235)',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { beginAtZero: true, title: { display: true, text: 'Number of Applications' } },
-                            x: { title: { display: true, text: 'Age in Months' } }
-                        },
-                        plugins: {
-                            legend: { display: true, position: 'top' },
-                            title: { display: true, text: 'Application Age Distribution' }
-                        }
-                    }
-                });
-                console.log('Chart created successfully.');
-            <?php else: ?>
-                // Either $age_stats is not set, or we have an error in $age_stats.
-                console.log('No age_stats or error in age_stats. Distribution chart will not render.');
-            <?php endif; ?>
-        });
-        </script>
-    <?php endif; ?>
+   
 
 
 </div>
