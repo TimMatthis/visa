@@ -2568,7 +2568,7 @@ function getGrantAgeProjection($visa_type_id) {
         // Project next 6 months using Little's Law metrics
         $projected_data = [];
         $current_date = new DateTime();
-        $current_date->modify('first day of this month');
+        $current_date->modify('first day of last month');  // Start from the last month of actual data
         
         $cap_reached = false;
         $running_total = $total_processed['total_processed'];
@@ -2852,6 +2852,252 @@ function calculateLittlesLaw($visa_type_id, $application_date = null) {
         error_log("Error in calculateLittlesLaw: " . $e->getMessage());
         return ['error' => 'Error calculating queue metrics'];
     }
+}
+
+/**
+ * Get Monthly Processing Data
+ */
+function getMonthlyProcessing($visa_type_id) {
+    global $conn;
+    
+    $query = "
+        WITH MonthlyProcessed AS (
+            SELECT 
+                DATE_FORMAT(vqu.update_month, '%Y-%m-01') as month,
+                SUM(GREATEST(0, prev.queue_count - vqu.queue_count)) as processed_count
+            FROM visa_queue_updates vqu
+            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+            LEFT JOIN visa_queue_updates prev 
+                ON prev.lodged_month_id = vqu.lodged_month_id
+                AND prev.update_month = (
+                    SELECT MAX(update_month)
+                    FROM visa_queue_updates
+                    WHERE update_month < vqu.update_month
+                    AND lodged_month_id = vqu.lodged_month_id
+                )
+            WHERE vl.visa_type_id = ?
+            AND prev.queue_count IS NOT NULL
+            GROUP BY DATE_FORMAT(vqu.update_month, '%Y-%m-01')
+            ORDER BY month DESC
+            LIMIT 12
+        )
+        SELECT 
+            month as update_month,
+            processed_count as total_processed
+        FROM MonthlyProcessed
+        ORDER BY month ASC";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    
+    $data = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $data[] = $row;
+    }
+    
+    return $data;
+}
+
+/**
+ * Get Queue Breakdown Data
+ */
+function getQueueBreakdown($visa_type_id, $application_date) {
+    global $conn;
+    
+    $query = "
+        WITH QueueByMonth AS (
+            SELECT 
+                vl.lodged_month,
+                vqu.queue_count,
+                vqu.update_month
+            FROM visa_lodgements vl
+            JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+            WHERE vl.visa_type_id = ?
+            AND vqu.update_month = (
+                SELECT MAX(update_month)
+                FROM visa_queue_updates
+            )
+            ORDER BY vl.lodged_month ASC
+        )
+        SELECT 
+            lodged_month as month,
+            queue_count as queue_size
+        FROM QueueByMonth";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    
+    $months = [];
+    $total_ahead = 0;
+    $your_month = date('Y-m-01', strtotime($application_date));
+    $your_position = null;
+    
+    while ($row = mysqli_fetch_assoc($result)) {
+        $months[] = $row;
+        if ($row['month'] < $your_month) {
+            $total_ahead += $row['queue_size'];
+        } elseif ($row['month'] === $your_month) {
+            // Calculate position within the month
+            $your_position = $total_ahead + ($row['queue_size'] / 2);
+            // Store the total queue size at this point
+            $total_queue_size = $total_ahead + $row['queue_size'];
+        }
+    }
+    
+    return [
+        'months' => $months,
+        'your_month' => $your_month,
+        'your_position' => $your_position,
+        'total_ahead' => $total_ahead,
+        'total_queue_size' => $total_queue_size ?? array_sum(array_column($months, 'queue_size'))
+    ];
+}
+
+/**
+ * Get Processing Times Data
+ */
+function getProcessingTimes($visa_type_id) {
+    global $conn;
+    
+    $query = "
+        WITH MonthlyProcessing AS (
+            SELECT 
+                vqu.update_month,
+                TIMESTAMPDIFF(MONTH, vl.lodged_month, vqu.update_month) as age_at_grant,
+                prev.queue_count - vqu.queue_count as processed_count
+            FROM visa_queue_updates vqu
+            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+            LEFT JOIN visa_queue_updates prev 
+                ON prev.lodged_month_id = vqu.lodged_month_id
+                AND prev.update_month = (
+                    SELECT MAX(update_month)
+                    FROM visa_queue_updates
+                    WHERE update_month < vqu.update_month
+                    AND lodged_month_id = vqu.lodged_month_id
+                )
+            WHERE vl.visa_type_id = ?
+            AND prev.queue_count IS NOT NULL
+            AND prev.queue_count > vqu.queue_count
+        ),
+        AgeGroups AS (
+            SELECT 
+                DATE_FORMAT(update_month, '%Y-%m-01') as month,
+                age_at_grant,
+                SUM(processed_count) as count_at_age,
+                ROW_NUMBER() OVER (
+                    PARTITION BY DATE_FORMAT(update_month, '%Y-%m-01') 
+                    ORDER BY SUM(processed_count) DESC
+                ) as rn
+            FROM MonthlyProcessing
+            GROUP BY 
+                DATE_FORMAT(update_month, '%Y-%m-01'),
+                age_at_grant
+        )
+        SELECT 
+            month,
+            age_at_grant as modal_age
+        FROM AgeGroups
+        WHERE rn = 1
+        ORDER BY month ASC
+        LIMIT 12";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    
+    $data = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $data[] = $row;
+    }
+    
+    return $data;
+}
+
+/**
+ * Get Grant Age Forecast Data
+ */
+function getGrantAgeForecast($visa_type_id, $application_date) {
+    global $conn;
+    
+    // Get the grant age trends data using the same function as the table
+    $query = "
+        WITH RECURSIVE 
+        Months AS (
+            SELECT CURRENT_DATE as month
+            UNION ALL
+            SELECT DATE_ADD(month, INTERVAL 1 MONTH)
+            FROM Months
+            WHERE month < DATE_ADD(CURRENT_DATE, INTERVAL 11 MONTH)
+        ),
+        ProcessingStats AS (
+            SELECT 
+                vqu.update_month,
+                TIMESTAMPDIFF(MONTH, vl.lodged_month, vqu.update_month) as age_at_grant,
+                COUNT(*) as grants_count
+            FROM visa_queue_updates vqu
+            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
+            WHERE vl.visa_type_id = ?
+            AND vqu.queue_count < (
+                SELECT MAX(queue_count) 
+                FROM visa_queue_updates 
+                WHERE lodged_month_id = vqu.lodged_month_id
+            )
+            GROUP BY vqu.update_month, age_at_grant
+        ),
+        MonthlyStats AS (
+            SELECT 
+                update_month,
+                age_at_grant as modal_age,
+                grants_count
+            FROM ProcessingStats ps1
+            WHERE grants_count = (
+                SELECT MAX(grants_count)
+                FROM ProcessingStats ps2
+                WHERE ps1.update_month = ps2.update_month
+            )
+        ),
+        Trends AS (
+            SELECT 
+                DATE_FORMAT(m.month, '%Y-%m-01') as processing_month,
+                COALESCE(
+                    AVG(ms.modal_age) OVER (
+                        ORDER BY m.month 
+                        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+                    ),
+                    (SELECT AVG(modal_age) FROM MonthlyStats)
+                ) as projected_age
+            FROM Months m
+            LEFT JOIN MonthlyStats ms ON DATE_FORMAT(ms.update_month, '%Y-%m') = DATE_FORMAT(m.month, '%Y-%m')
+        )
+        SELECT 
+            processing_month,
+            ROUND(projected_age, 1) as projected_age,
+            ROUND(projected_age * 0.1, 1) as confidence_range
+        FROM Trends
+        ORDER BY processing_month";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    
+    $data = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $data[] = $row;
+    }
+    
+    return $data;
+}
+
+function calculateProcessingTrend($current_rate, $previous_rate) {
+    if ($previous_rate == 0) return 0;
+    $percentage_change = (($current_rate - $previous_rate) / $previous_rate) * 100;
+    return round($percentage_change, 1);
 }
 
 // Continue with other core functions...
