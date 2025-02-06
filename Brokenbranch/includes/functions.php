@@ -115,21 +115,10 @@ function validateImportFile($file) {
  * @location Admin Panel > Import Data tab
  */
 function processVisaQueueImport($file_info, $delimiter) {
-    error_log("Starting processVisaQueueImport");
-    error_log("File info: " . print_r($file_info, true));
+    global $conn;
     
     try {
-        if (!isset($file_info['tmp_name']) || !file_exists($file_info['tmp_name'])) {
-            throw new Exception('Import file not found');
-        }
-        
-        if (!isset($file_info['visa_type'])) {
-            throw new Exception('Visa type not specified');
-        }
-        
-        global $conn;
-        
-        // Start transaction
+        // Start transaction (mysqli version)
         mysqli_begin_transaction($conn);
         
         // Get visa type ID
@@ -185,24 +174,10 @@ function processVisaQueueImport($file_info, $delimiter) {
             $formatted_months[$i] = $date->format('Y-m-d');
         }
         
-        // Check for duplicate data
-        $duplicates = [];
-        foreach ($formatted_months as $month) {
-            mysqli_stmt_bind_param($findLodgementIdStmt, "si", $month, $visaTypeId);
-            mysqli_stmt_execute($findLodgementIdStmt);
-            $existing = mysqli_stmt_get_result($findLodgementIdStmt);
-            if (mysqli_fetch_assoc($existing)) {
-                $duplicates[] = date('M Y', strtotime($month));
-            }
-        }
-        
-        if (!empty($duplicates)) {
-            throw new Exception("Data already exists for the following months: " . implode(", ", $duplicates));
-        }
-        
         $stats = [
             'lodgements_created' => 0,
             'queue_updates' => 0,
+            'skipped_updates' => 0,
             'rows_processed' => 0
         ];
         
@@ -239,18 +214,56 @@ function processVisaQueueImport($file_info, $delimiter) {
                 if ($value === '<5' || is_numeric($value)) {
                     $queue_count = ($value === '<5') ? 0 : intval($value);
                     
-                    // Create new lodgement with maximum count for this column
-                    mysqli_stmt_bind_param($createLodgementStmt, "ssi", $formatted_months[$i], $visaTypeId, $max_counts[$i]);
-                    if (!mysqli_stmt_execute($createLodgementStmt)) {
-                        throw new Exception("Failed to create lodgement: " . mysqli_stmt_error($createLodgementStmt));
-                    }
-                    $lodgementId = mysqli_insert_id($conn);
-                    $stats['lodgements_created']++;
+                    // Check if lodgement exists
+                    mysqli_stmt_bind_param($findLodgementIdStmt, "ss", $formatted_months[$i], $visaTypeId);
+                    mysqli_stmt_execute($findLodgementIdStmt);
+                    $existing = mysqli_stmt_get_result($findLodgementIdStmt);
+                    $existing_row = mysqli_fetch_assoc($existing);
                     
-                    // Add queue update
-                    mysqli_stmt_bind_param($createQueueUpdateStmt, "isi", $lodgementId, $update_month, $queue_count);
-                    mysqli_stmt_execute($createQueueUpdateStmt);
-                    $stats['queue_updates']++;
+                    $lodgementId = null;
+                    if (!$existing_row) {
+                        // Create new lodgement with maximum count for this column
+                        mysqli_stmt_bind_param($createLodgementStmt, "ssi", $formatted_months[$i], $visaTypeId, $max_counts[$i]);
+                        if (!mysqli_stmt_execute($createLodgementStmt)) {
+                            throw new Exception("Failed to create lodgement: " . mysqli_stmt_error($createLodgementStmt));
+                        }
+                        $lodgementId = mysqli_insert_id($conn);
+                        $stats['lodgements_created']++;
+                    } else {
+                        $lodgementId = $existing_row['id'];
+                    }
+                    
+                    // Validate lodgementId before using it
+                    if (!$lodgementId) {
+                        throw new Exception("Invalid lodgement ID for month: " . $formatted_months[$i]);
+                    }
+                    
+                    // Check if this update already exists
+                    mysqli_stmt_bind_param($findQueueUpdateStmt, "ss", $lodgementId, $update_month);
+                    mysqli_stmt_execute($findQueueUpdateStmt);
+                    $existing = mysqli_stmt_get_result($findQueueUpdateStmt);
+                    $existing_row = mysqli_fetch_assoc($existing);
+                    if (!$existing_row) {
+                        // Only add new updates
+                        mysqli_stmt_bind_param($createQueueUpdateStmt, "sss", $lodgementId, $update_month, $queue_count);
+                        mysqli_stmt_execute($createQueueUpdateStmt);
+                        $stats['queue_updates']++;
+                    } else {
+                        // Check if the queue count has changed
+                        if ($existing_row['queue_count'] != $queue_count) {
+                            // Update the existing record
+                            $updateQueueStmt = mysqli_prepare($conn, "
+                                UPDATE visa_queue_updates 
+                                SET queue_count = ? 
+                                WHERE lodged_month_id = ? AND update_month = ?
+                            ");
+                            mysqli_stmt_bind_param($updateQueueStmt, "iss", $queue_count, $lodgementId, $update_month);
+                            mysqli_stmt_execute($updateQueueStmt);
+                            $stats['queue_updates']++;
+                        } else {
+                            $stats['skipped_updates']++;
+                        }
+                    }
                 }
             }
             $stats['rows_processed']++;
@@ -262,22 +275,26 @@ function processVisaQueueImport($file_info, $delimiter) {
         return [
             'status' => 'success',
             'message' => sprintf(
-                'Import completed successfully. Created %d lodgements and %d queue updates.',
+                "Successfully imported visa type %s:\n" .
+                "- %d rows processed\n" .
+                "- %d new lodgements created\n" .
+                "- %d new queue updates added\n" .
+                "- %d duplicate updates skipped",
+                $file_info['visa_type'],
+                $stats['rows_processed'],
                 $stats['lodgements_created'],
-                $stats['queue_updates']
+                $stats['queue_updates'],
+                $stats['skipped_updates']
             )
         ];
         
     } catch (Exception $e) {
-        if (isset($conn)) {
-            mysqli_rollback($conn);
-        }
-        if (isset($handle)) {
-            fclose($handle);
-        }
-        error_log("Import processing failed: " . $e->getMessage());
-        error_log("Stack trace: " . $e->getTraceAsString());
-        throw $e;
+        mysqli_rollback($conn);
+        error_log("Import error: " . $e->getMessage());
+        return [
+            'status' => 'error',
+            'message' => "Error importing data: " . $e->getMessage()
+        ];
     }
 }
 
@@ -334,41 +351,17 @@ function getAllVisaTypes($conn) {
  * @return string Success or error message
  * @location Admin Panel > Manage Visa Types tab > Add New
  */
-function addVisaType($visa_type, $conn) {
+function addVisaType($visa_type) {
+    global $pdo;
     try {
-        // Check if visa type already exists
-        $check_stmt = mysqli_prepare($conn, "SELECT id FROM visa_types WHERE visa_type = ?");
-        mysqli_stmt_bind_param($check_stmt, "s", $visa_type);
-        mysqli_stmt_execute($check_stmt);
-        $result = mysqli_stmt_get_result($check_stmt);
-        
-        if (mysqli_fetch_assoc($result)) {
-            return [
-                'status' => 'error',
-                'message' => 'Error: This visa type already exists'
-            ];
+        $stmt = $pdo->prepare("INSERT INTO visa_types (visa_type) VALUES (?)");
+        $stmt->execute([$visa_type]);
+        return "Visa type added successfully";
+    } catch(PDOException $e) {
+        if ($e->getCode() == 23000) {
+            return "Error: This visa type already exists";
         }
-        
-        // Add new visa type
-        $stmt = mysqli_prepare($conn, "INSERT INTO visa_types (visa_type) VALUES (?)");
-        mysqli_stmt_bind_param($stmt, "s", $visa_type);
-        
-        if (mysqli_stmt_execute($stmt)) {
-            return [
-                'status' => 'success',
-                'message' => 'Visa type added successfully'
-            ];
-        } else {
-            return [
-                'status' => 'error',
-                'message' => 'Error adding visa type: ' . mysqli_error($conn)
-            ];
-        }
-    } catch (Exception $e) {
-        return [
-            'status' => 'error',
-            'message' => 'Error adding visa type: ' . $e->getMessage()
-        ];
+        return "Error adding visa type: " . $e->getMessage();
     }
 }
 
@@ -1227,13 +1220,16 @@ function getAnnualAllocation($visa_type_id) {
  * @description Calculates the number of visa applications lodged before a given date
  * @param int $visa_type_id The ID of the visa type to analyze
  * @param string $lodgement_date The lodgement date in YYYY-MM-DD format
- * @return array Cases ahead details including total count and estimated current position
+ * @return array Cases ahead details including total count and breakdown
+ * @example 
+ *   $cases_ahead = getCasesAheadInQueue(190, '2023-07-10');
+ * @api_endpoint /api.php?function=getCasesAheadInQueue&visa_type_id=190&lodgement_date=2023-07-10
  */
 function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
     global $conn;
     
     try {
-        // Get the latest update date
+        // First get the latest update date
         $latest_update_query = "
             SELECT MAX(update_month) as latest_update
             FROM visa_queue_updates vqu
@@ -1250,99 +1246,44 @@ function getCasesAheadInQueue($visa_type_id, $lodgement_date) {
         if (!$latest_update) {
             return ['error' => 'No queue data available'];
         }
-
-        // Get weighted average processing rate
-        $processing_rate = getWeightedAverageProcessingRate($visa_type_id);
         
-        // Calculate days since last update
-        $last_update_date = new DateTime($latest_update);
-        $today = new DateTime();
-        $days_since_update = $today->diff($last_update_date)->days;
-        $months_since_update = $days_since_update / 30.44; // Average month length
-        
-        // Original query to get cases ahead as of last update
-        // ... [Previous query remains the same until the final SELECT] ...
-        
+        // Get cases ahead in queue
         $query = "
             WITH LatestCounts AS (
                 SELECT 
                     vl.lodged_month,
                     vqu.queue_count,
-                    vqu.update_month,
-                    CASE 
-                        WHEN DATE_FORMAT(vl.lodged_month, '%Y-%m') = DATE_FORMAT(?, '%Y-%m') THEN 1
-                        ELSE 0
-                    END as is_lodgement_month
+                    vqu.update_month
                 FROM visa_lodgements vl
                 JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
                 WHERE vl.visa_type_id = ?
                 AND vqu.update_month = ?
-                AND (
-                    vl.lodged_month < ?  -- Previous months
-                    OR (
-                        DATE_FORMAT(vl.lodged_month, '%Y-%m') = DATE_FORMAT(?, '%Y-%m')  -- Same month
-                    )
-                )
+                AND vl.lodged_month < ?
             )
             SELECT 
-                SUM(CASE 
-                    WHEN is_lodgement_month = 1 THEN 
-                        queue_count * ? / DAY(LAST_DAY(lodged_month))
-                    ELSE queue_count 
-                END) as total_ahead,
+                SUM(queue_count) as total_ahead,
                 JSON_ARRAYAGG(
                     JSON_OBJECT(
                         'lodged_month', lodged_month,
-                        'queue_count', queue_count,
-                        'prorated_count', CASE 
-                            WHEN is_lodgement_month = 1 THEN 
-                                queue_count * ? / DAY(LAST_DAY(lodged_month))
-                            ELSE queue_count 
-                        END
+                        'queue_count', queue_count
                     )
-                    ORDER BY lodged_month DESC
                 ) as breakdown
             FROM LatestCounts
         ";
         
-        // Parse the lodgement date
-        $lodgement_datetime = new DateTime($lodgement_date);
-        $day_of_month = intval($lodgement_datetime->format('d'));
-        
         $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'sisssis', 
-            $lodgement_date,         // For DATE_FORMAT in is_lodgement_month
-            $visa_type_id,           // For visa_type_id
-            $latest_update,          // For update_month
-            $lodgement_date,         // For < comparison
-            $lodgement_date,         // For DATE_FORMAT in OR clause
-            $day_of_month,           // For prorating calculation
-            $day_of_month           // For prorating in JSON_OBJECT
-        );
+        mysqli_stmt_bind_param($stmt, 'iss', $visa_type_id, $latest_update, $lodgement_date);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
         $row = mysqli_fetch_assoc($result);
         
         if ($row) {
-            $total_ahead = intval($row['total_ahead']);
-            
-            // Calculate estimated current position
-            $estimated_processed = round($processing_rate * $months_since_update);
-            $estimated_current_ahead = max(0, $total_ahead - $estimated_processed);
-            
-            $breakdown = json_decode($row['breakdown'], true);
-            
+            $breakdown = $row['breakdown'] ? json_decode($row['breakdown'], true) : [];
             return [
-                'total_ahead' => $total_ahead,
-                'estimated_current_ahead' => $estimated_current_ahead,
+                'total_ahead' => intval($row['total_ahead']),
                 'latest_update' => $latest_update,
-                'days_since_update' => $days_since_update,
-                'estimated_processed_since_update' => $estimated_processed,
-                'monthly_processing_rate' => $processing_rate,
                 'breakdown' => $breakdown,
-                'lodgement_date' => $lodgement_date,
-                'day_of_month' => $day_of_month,
-                'calculation_date' => $today->format('Y-m-d')
+                'lodgement_date' => $lodgement_date
             ];
         }
         
@@ -1599,15 +1540,7 @@ function getAllocationsRemaining($visa_type_id) {
         $allocation = mysqli_fetch_assoc($result);
         
         if (!$allocation) {
-            // If no allocation found for current FY, return 0 remaining places
-            return [
-                'total_allocation' => 0,
-                'total_processed' => 0,
-                'remaining' => 0,
-                'financial_year' => $fy_dates['fy_label'],
-                'percentage_used' => 0,
-                'monthly_breakdown' => []
-            ];
+            return ['error' => 'No allocation found for current financial year'];
         }
         
         // Get total processed this FY using the same query structure as getTotalProcessedToDate
@@ -1722,82 +1655,29 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $allocations = getAllocationsRemaining($visa_type_id);
         $priority_ratio = getPriorityRatio($visa_type_id, $lodgement_date);
         $fy_dates = getCurrentFinancialYearDates();
-        $weighted_average = getWeightedAverageProcessingRate($visa_type_id);
         
-        // Check if application is from previous financial year
-        $lodgement_date_obj = new DateTime($lodgement_date);
-        $current_fy_start = new DateTime($fy_dates['start_date']);
-        $is_previous_fy = $lodgement_date_obj < $current_fy_start;
-        
-        // Get case age statistics to check modal age
-        $age_stats = getCaseAgeStatistics($visa_type_id, $lodgement_date);
-
-        // Calculate if application is significantly older than mean age
-        $is_overdue = false;
-        if ($age_stats && !isset($age_stats['error'])) {
-            $mean_age = $age_stats['mean_age'];
-            $current_age = $age_stats['reference_case']['age'];
-            $std_dev = $age_stats['std_dev'];
-            
-            // Check if application is more than 1 standard deviation older than mean age
-            $age_threshold = $mean_age + $std_dev;
-            $is_overdue = $current_age > $age_threshold;
-            
-            error_log("Overdue check: Current age: $current_age, Mean age: $mean_age, Std Dev: $std_dev, Threshold: $age_threshold, Is overdue: " . ($is_overdue ? 'true' : 'false'));
-        }
-
         // Validate required data
         if (isset($cases_ahead['error']) || isset($allocations['error']) || isset($priority_ratio['error'])) {
             return ['error' => 'Insufficient data for prediction'];
         }
-
+        
         // Calculate non-priority places remaining
         $priority_percentage = $priority_ratio['priority_percentage'] / 100;
         $non_priority_ratio = 1 - $priority_percentage;
         $non_priority_places = round($allocations['remaining'] * $non_priority_ratio);
         
-        // Check if processing likely in next FY - ONLY if not overdue
-        if (!$is_overdue && $cases_ahead['total_ahead'] > $non_priority_places) {
-            // Calculate base rate
-            $base_rate = $weighted_average * $non_priority_ratio;
-            error_log("Initial base rate for next FY case: $base_rate");
-            
-            // Apply 80% reduction for previous FY applications
-            $non_priority_rate = $is_previous_fy ? ($weighted_average * 0.8) : $weighted_average;
-            error_log("Non-priority rate before minimum check: $non_priority_rate");
-            
-            // Apply minimum rate after reduction
-            $min_rate = 100;
-            $non_priority_rate = max($non_priority_rate, $min_rate);
-            error_log("Final non-priority rate after minimum check: $non_priority_rate");
-            
-            // Add debug logging
-            error_log("Next FY calculation details:");
-            error_log("- Base rate: $base_rate");
-            error_log("- Non-priority rate: $non_priority_rate");
-            error_log("- Weighted average: $weighted_average");
-            error_log("- Priority percentage: " . ($priority_percentage * 100) . "%");
-            
+        // Check if processing likely in next FY
+        if ($cases_ahead['total_ahead'] > $non_priority_places) {
             return [
                 'next_fy' => true,
-                'message' => 'Processing likely in next financial year. A prediction can only be made after the budget is announced as the Visa allocations will be set in the budget.',
+                'message' => 'Processing likely in next financial year. Prediction available after budget announcement.',
                 'cases_ahead' => $cases_ahead['total_ahead'],
                 'places_remaining' => $non_priority_places,
                 'last_update' => $cases_ahead['latest_update'],
-                'current_fy_start' => $fy_dates['start_date'],
-                'weighted_average' => $weighted_average,
-                'non_priority_rate' => $non_priority_rate,
-                'total_cases' => $cases_ahead['total_ahead'],
-                'eighty_percentile_cases' => round($cases_ahead['total_ahead'] * 0.8),
-                'seventy_percentile_cases' => round($cases_ahead['total_ahead'] * 0.7),
-                'months_to_process' => null,  // Cannot predict for next FY
                 'steps' => [
                     'priority_percentage' => $priority_percentage,
                     'non_priority_ratio' => $non_priority_ratio,
-                    'non_priority_places' => $non_priority_places,
-                    'weighted_average' => $weighted_average,
-                    'non_priority_rate' => $non_priority_rate,
-                    'base_rate' => $base_rate
+                    'non_priority_places' => $non_priority_places
                 ]
             ];
         }
@@ -1809,6 +1689,11 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
             return ['error' => 'Unable to calculate processing rate'];
         }
         
+        // Check if application is from previous financial year
+        $lodgement_date_obj = new DateTime($lodgement_date);
+        $fy_start_date = new DateTime($fy_dates['start_date']);
+        $is_previous_fy = $lodgement_date_obj < $fy_start_date;
+        
         // Add detailed debug logging
         error_log("Rate calculation details:");
         error_log("Weighted average processing rate: $weighted_average");
@@ -1818,14 +1703,6 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         // Calculate base rate
         $base_rate = $weighted_average * $non_priority_ratio;
         error_log("Initial base rate: $base_rate");
-        
-        // Cap priority percentage at 25% for worst case scenario
-        $original_priority_percentage = $priority_percentage;
-        if ($priority_percentage > 0.25) {
-            error_log("Priority percentage capped from " . ($priority_percentage * 100) . "% to 25%");
-            $priority_percentage = 0.25;
-            $non_priority_ratio = 0.75; // 1 - 0.25
-        }
         
         // Apply 80% reduction for previous FY applications
         $non_priority_rate = $is_previous_fy ? ($weighted_average * 0.8) : $weighted_average;
@@ -1845,25 +1722,16 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $total_cases = $cases_ahead['total_ahead'];
         $ninety_percentile_cases = ceil($total_cases * 0.9); // 90% of cases ahead
         $eighty_percentile_cases = ceil($total_cases * 0.8); // 80% of cases ahead
-        $seventy_percentile_cases = ceil($total_cases * 0.7); // 70% of cases ahead
         
         // Calculate months to process for each scenario
         $months_to_process = $total_cases / $non_priority_rate;
         $months_to_ninety = $ninety_percentile_cases / $non_priority_rate;
-        $months_to_eighty = $eighty_percentile_cases / $non_priority_rate;  // This is the one we use for display
-        $months_to_seventy = $seventy_percentile_cases / $non_priority_rate;
-        
-        // Add debug logging
-        error_log("Processing time calculation:");
-        error_log("80th percentile cases: $eighty_percentile_cases");
-        error_log("Non-priority rate: $non_priority_rate");
-        error_log("Months to process (80th): $months_to_eighty");
+        $months_to_eighty = $eighty_percentile_cases / $non_priority_rate;
         
         // Calculate days for each scenario
         $days_to_process = ceil($months_to_process * 30.44);
         $days_to_ninety = ceil($months_to_ninety * 30.44);
         $days_to_eighty = ceil($months_to_eighty * 30.44);
-        $days_to_seventy = ceil($months_to_seventy * 30.44);
         
         // Calculate prediction dates
         $latest_update = new DateTime($cases_ahead['latest_update']);
@@ -1877,9 +1745,6 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         $eighty_percent = clone $latest_update;
         $eighty_percent->add(new DateInterval("P{$days_to_eighty}D"));
         
-        $seventy_percent = clone $latest_update;
-        $seventy_percent->add(new DateInterval("P{$days_to_seventy}D"));
-        
         // Check if application is from previous financial year and prediction is very soon
         $today = new DateTime();
         $tomorrow = (clone $today)->add(new DateInterval('P1D'));
@@ -1889,30 +1754,17 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
         
         $is_very_overdue = $is_previous_fy && $prediction_date <= $tomorrow;
         
-        // In the return array, add age statistics information
+        // Add overdue status to return array
         return [
             'next_fy' => false,
-            'is_overdue' => $is_overdue,
-            'age_stats' => [
-                'current_age' => $current_age ?? null,
-                'mean_age' => $mean_age ?? null,  // Changed from modal_age
-                'std_dev' => $std_dev ?? null,
-                'age_threshold' => $age_threshold ?? null
-            ],
             'latest_date' => $latest_date->format('Y-m-d'),
             'ninety_percent' => $ninety_percent->format('Y-m-d'),
             'eighty_percent' => $eighty_percent->format('Y-m-d'),
-            'seventy_percent' => $seventy_percent->format('Y-m-d'),
             'cases_ahead' => $total_cases,
             'places_remaining' => $non_priority_places,
             'last_update' => $cases_ahead['latest_update'],
-            'weighted_average' => $weighted_average,
             'is_previous_fy' => $is_previous_fy,
             'is_very_overdue' => $is_very_overdue,
-            'current_fy_start' => $fy_dates['start_date'],
-            'lodgement_date' => $lodgement_date,
-            'priority_percentage_capped' => $original_priority_percentage > 0.25,
-            'original_priority_percentage' => $original_priority_percentage,
             'application_age' => [
                 'years' => $application_age->y,
                 'months' => $application_age->m,
@@ -1923,12 +1775,12 @@ function getVisaProcessingPrediction($visa_type_id, $lodgement_date) {
                 'non_priority_ratio' => $non_priority_ratio,
                 'non_priority_places' => $non_priority_places,
                 'non_priority_rate' => round($non_priority_rate, 1),
-                'base_rate' => round($weighted_average, 1),
+                'base_rate' => round($weighted_average, 1),  // Added to show original rate
                 'weighted_average' => round($weighted_average, 1),
-                'months_to_process' => $months_to_eighty,  // Changed from $months_to_process
+                'months_to_process' => round($months_to_process, 1),
                 'total_cases' => $total_cases,
+                'ninety_percentile_cases' => $ninety_percentile_cases,
                 'eighty_percentile_cases' => $eighty_percentile_cases,
-                'seventy_percentile_cases' => $seventy_percentile_cases,
                 'rate_adjustment' => $is_previous_fy ? '80% of base rate' : 'Standard rate',
                 'overdue_status' => $is_very_overdue ? 'Check Recommended' : 'On Track'
             ]
@@ -2017,7 +1869,7 @@ function getAgeMessage($interval) {
         18 => "In 18 months, the Mars Rover traveled over 12 miles on the Red Planet! 🚀 Your visa application has been waiting long enough to go sightseeing on Mars.",
         21 => "Did you know that it took 21 months to build the Eiffel Tower? 🇫🇷 If your visa were a landmark, it would be halfway done!",
         24 => "You could have completed 4 full university semesters in the time you've been waiting! 🎓",
-        27 => "It takes 27 months to train an astronaut for a mission to space. 🧑‍🚀 Your visa application is as old as a future space explorer's training!",
+        27 => "It takes 27 months to train an astronaut for a mission to space. 🧑‍🚀 Your visa application is as old as a future space explorer’s training!",
         30 => "A blue whale calf doubles in size within its first 30 months! 🐋 Your visa application has been waiting as long as a whale has been growing massive.",
         33 => "At 33 months, your application is older than the average time it takes for an elephant to give birth! 🐘",
         36 => "Your visa application is as old as the longest championship chess match ever played (36 months)! ♟️",
@@ -2051,1253 +1903,6 @@ function safeExplode($delimiter, $string) {
         return [];
     }
     return explode($delimiter, $string);
-}
-
-/**
- * Get Visa Queue Data
- * 
- * @description Retrieves the queue history for a specific visa type
- * @param int $visa_type_id The ID of the visa type to get queue data for
- * @return array|false Queue data including lodgement history and updates
- */
-function getVisaQueueData($visa_type_id) {
-    global $conn;
-    
-    try {
-        // First get the visa type details
-        $visa_query = "SELECT visa_type FROM visa_types WHERE id = ?";
-        $stmt = mysqli_prepare($conn, $visa_query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $visa_result = mysqli_stmt_get_result($stmt);
-        $visa_type = mysqli_fetch_assoc($visa_result);
-
-        if (!$visa_type) {
-            return false;
-        }
-
-        // Modified query to ensure we get only unique lodgement months
-        $query = "
-            WITH RankedLodgements AS (
-                SELECT 
-                    vl.id,
-                    vl.lodged_month,
-                    vl.first_count_volume as first_count,
-                    JSON_ARRAYAGG(
-                        JSON_OBJECT(
-                            'update_month', vqu.update_month,
-                            'queue_count', vqu.queue_count
-                        )
-                    ) as updates,
-                    ROW_NUMBER() OVER (PARTITION BY vl.lodged_month ORDER BY vl.first_count_volume DESC, vl.id DESC) as rn
-                FROM visa_lodgements vl
-                LEFT JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
-                WHERE vl.visa_type_id = ?
-                AND vl.first_count_volume > 0
-                GROUP BY vl.id, vl.lodged_month, vl.first_count_volume
-            )
-            SELECT 
-                id,
-                lodged_month,
-                first_count,
-                updates
-            FROM RankedLodgements
-            WHERE rn = 1
-            ORDER BY lodged_month DESC
-        ";
-
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        $lodgements = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $row['updates'] = json_decode($row['updates'], true);
-            $latest_update = end($row['updates']);
-            $row['latest_count'] = $latest_update ? $latest_update['queue_count'] : 0;
-            $row['movement'] = $row['first_count'] - $row['latest_count'];
-            $row['processing_rate'] = $row['first_count'] > 0 
-                ? round(($row['movement'] / $row['first_count']) * 100, 1)
-                : 0;
-            $lodgements[] = $row;
-        }
-
-        return [
-            'visa_type' => $visa_type['visa_type'],
-            'lodgements' => $lodgements
-        ];
-
-    } catch (Exception $e) {
-        error_log("Error in getVisaQueueData: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Get the current length of the queue
- * 
- * @return int Number of messages in the queue
- */
-function get_queue_length() {
-    global $db;
-    
-    $sql = "SELECT COUNT(*) as count FROM message_queue";
-    $result = $db->query($sql);
-    $row = $result->fetch_assoc();
-    
-    return (int)$row['count'];
-}
-
-/**
- * Get Case Age Statistics
- * 
- * @description Calculates statistical measures for visa processing ages in current FY
- * @param int $visa_type_id The ID of the visa type to analyze
- * @param string|null $lodgement_date Optional reference date for comparison
- * @return array Statistical measures including mean, mode, standard deviation, and variance
- */
-function getCaseAgeStatistics($visa_type_id, $lodgement_date = null) {
-    global $conn;
-    
-    try {
-        $fy_dates = getCurrentFinancialYearDates();
-        
-        // Modified query to ensure we're only counting actual grants (where queue count decreases)
-        $query = "
-            WITH MonthlyChanges AS (
-                -- Get all month-to-month changes where count decreased (indicating grants)
-                SELECT 
-                    vl.lodged_month,
-                    curr.update_month as grant_month,
-                    prev.queue_count - curr.queue_count as grants_count,
-                    TIMESTAMPDIFF(MONTH, vl.lodged_month, curr.update_month) as age_at_grant
-                FROM visa_queue_updates curr
-                JOIN visa_lodgements vl ON curr.lodged_month_id = vl.id
-                LEFT JOIN visa_queue_updates prev 
-                    ON prev.lodged_month_id = curr.lodged_month_id
-                    AND prev.update_month = (
-                        SELECT MAX(update_month)
-                        FROM visa_queue_updates
-                        WHERE update_month < curr.update_month
-                        AND lodged_month_id = curr.lodged_month_id
-                    )
-                WHERE vl.visa_type_id = ?
-                AND curr.update_month BETWEEN ? AND ?
-                AND curr.queue_count < COALESCE(prev.queue_count, curr.queue_count + 1)
-            ),
-            Numbers AS (
-                SELECT 1 as n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL 
-                SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL 
-                SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
-                UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL 
-                SELECT 14 UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL 
-                SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 UNION ALL SELECT 20
-                UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL 
-                SELECT 24 UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL 
-                SELECT 27 UNION ALL SELECT 28 UNION ALL SELECT 29 UNION ALL SELECT 30
-                UNION ALL SELECT 31 UNION ALL SELECT 32 UNION ALL SELECT 33 UNION ALL 
-                SELECT 34 UNION ALL SELECT 35 UNION ALL SELECT 36 UNION ALL 
-                SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39 UNION ALL SELECT 40
-                UNION ALL SELECT 41 UNION ALL SELECT 42 UNION ALL SELECT 43 UNION ALL 
-                SELECT 44 UNION ALL SELECT 45 UNION ALL SELECT 46 UNION ALL 
-                SELECT 47 UNION ALL SELECT 48 UNION ALL SELECT 49 UNION ALL SELECT 50
-            ),
-            ProcessedCases AS (
-                -- Expand each change into individual cases
-                SELECT 
-                    mc.lodged_month,
-                    mc.grant_month,
-                    mc.age_at_grant
-                FROM MonthlyChanges mc
-                JOIN Numbers n ON n.n <= mc.grants_count
-            ),
-            AgeStats AS (
-                SELECT 
-                    AVG(age_at_grant) as mean_age,
-                    STDDEV(age_at_grant) as std_dev,
-                    VARIANCE(age_at_grant) as variance,
-                    COUNT(*) as total_cases,
-                    MIN(age_at_grant) as min_age,
-                    MAX(age_at_grant) as max_age
-                FROM ProcessedCases
-            ),
-            ModeCTE AS (
-                SELECT 
-                    age_at_grant,
-                    COUNT(*) as frequency
-                FROM ProcessedCases
-                GROUP BY age_at_grant
-                ORDER BY COUNT(*) DESC, age_at_grant ASC
-                LIMIT 1
-            )
-            SELECT 
-                a.*,
-                m.age_at_grant as modal_age,
-                GROUP_CONCAT(DISTINCT pc.age_at_grant ORDER BY pc.age_at_grant) as all_ages
-            FROM AgeStats a
-            CROSS JOIN ModeCTE m
-            CROSS JOIN (SELECT DISTINCT age_at_grant FROM ProcessedCases) pc
-            GROUP BY a.mean_age, a.std_dev, a.variance, a.total_cases, 
-                     a.min_age, a.max_age, m.age_at_grant
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'iss', 
-            $visa_type_id,
-            $fy_dates['start_date'],
-            $fy_dates['end_date']
-        );
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $stats = mysqli_fetch_assoc($result);
-        
-        if (!$stats || $stats['total_cases'] == 0) {
-            return ['error' => 'No processing data available for this visa type'];
-        }
-
-        // Debug log to check raw values
-        error_log("Raw stats: " . print_r($stats, true));
-        
-        // Calculate mode from all_ages (as a backup verification)
-        $ages = array_map('intval', explode(',', $stats['all_ages']));
-        $age_counts = array_count_values($ages);
-        arsort($age_counts);
-        $calculated_mode = key($age_counts);
-        
-        // Use the directly calculated mode from SQL if available, otherwise use the backup
-        $mode = $stats['modal_age'] ?? $calculated_mode;
-        
-        // Calculate one standard deviation range
-        $mean = floatval($stats['mean_age']);
-        $std_dev = floatval($stats['std_dev']);
-        $std_dev_lower = $mean - $std_dev;
-        $std_dev_upper = $mean + $std_dev;
-        
-        // Calculate percentile of reference case if provided
-        $percentile = null;
-        $reference_age = null;
-        if ($lodgement_date) {
-            // Use TIMESTAMPDIFF for consistent age calculation
-            $query = "SELECT TIMESTAMPDIFF(MONTH, ?, CURRENT_DATE) as reference_age";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, "s", $lodgement_date);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            $row = mysqli_fetch_assoc($result);
-            $reference_age = $row['reference_age'];
-            
-            // Debug log
-            error_log("Reference case age calculation: Lodgement date: $lodgement_date, Age: $reference_age months");
-            
-            // Calculate percentile
-            $cases_older = 0;
-            foreach ($ages as $age) {
-                if ($age > $reference_age) {
-                    $cases_older++;
-                }
-            }
-            $percentile = (($cases_older) / count($ages)) * 100;
-        }
-        
-        // Prepare statistical summary
-        $stats_summary = [
-            'mean_age' => round($mean, 1),
-            'modal_age' => $mode,
-            'std_dev' => round($std_dev, 1),
-            'variance' => round(floatval($stats['variance']), 1),
-            'std_dev_range' => [
-                'lower' => round($std_dev_lower, 1),
-                'upper' => round($std_dev_upper, 1)
-            ],
-            'age_range' => [
-                'min' => intval($stats['min_age']),
-                'max' => intval($stats['max_age'])
-            ],
-            'total_cases' => intval($stats['total_cases']),
-            'financial_year' => $fy_dates['fy_label']
-        ];
-        
-        // Add reference case comparison if provided
-        if ($lodgement_date) {
-            $stats_summary['reference_case'] = [
-                'age' => $reference_age,
-                'percentile' => round($percentile, 1),
-                'std_deviations_from_mean' => round(($reference_age - $mean) / $std_dev, 1),
-                'comparison_to_mode' => $reference_age - $mode // Add comparison to mode
-            ];
-            
-            // Updated interpretation focusing on mode
-            $stats_summary['interpretation'] = [
-                'age_comparison' => $reference_age > $mode ? 'older' : 'younger',
-                'mode_difference' => abs($reference_age - $mode),
-                'deviation_significance' => abs(($reference_age - $mean) / $std_dev) > 2 ? 'significant' : 'normal',
-                'percentile_interpretation' => $percentile > 75 ? 'high' : ($percentile < 25 ? 'low' : 'moderate'),
-                'use_mode_explanation' => true // Flag to show mode explanation
-            ];
-        }
-        
-        // Get age distribution data for chart
-        $distribution_query = "
-            WITH MonthlyProcessed AS (
-                SELECT 
-                    vl.lodged_month,
-                    curr.update_month,
-                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count
-                FROM visa_queue_updates curr
-                JOIN visa_lodgements vl ON curr.lodged_month_id = vl.id
-                LEFT JOIN visa_queue_updates prev 
-                    ON prev.lodged_month_id = curr.lodged_month_id
-                    AND prev.update_month = (
-                        SELECT MAX(update_month)
-                        FROM visa_queue_updates
-                        WHERE update_month < curr.update_month
-                        AND lodged_month_id = curr.lodged_month_id
-                    )
-                WHERE vl.visa_type_id = ?
-                AND curr.update_month BETWEEN ? AND ?
-                AND prev.queue_count IS NOT NULL
-            ),
-            ProcessedCases AS (
-                -- This should match the logic in getTotalProcessedToDate
-                SELECT 
-                    TIMESTAMPDIFF(MONTH, lodged_month, update_month) as age_at_grant,
-                    processed_count as count
-                FROM MonthlyProcessed
-                WHERE processed_count > 0
-            ),
-            AgeStats AS (
-                SELECT 
-                    age_at_grant,
-                    SUM(count) as total_count
-                FROM ProcessedCases
-                GROUP BY age_at_grant
-            )
-            SELECT 
-                age_at_grant as age,
-                total_count as count
-            FROM AgeStats
-            ORDER BY age_at_grant;
-        ";
-
-        $stmt = mysqli_prepare($conn, $distribution_query);
-        mysqli_stmt_bind_param($stmt, 'iss', 
-            $visa_type_id,
-            $fy_dates['start_date'],
-            $fy_dates['end_date']
-        );
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        $distribution_data = [
-            'labels' => [],
-            'counts' => [],
-        ];
-
-        // Get the total processed count first
-        $total_processed = getTotalProcessedToDate($visa_type_id);
-
-        // Debug: Log the raw distribution data
-        $debug_data = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $distribution_data['labels'][] = $row['age'];
-            $distribution_data['counts'][] = intval($row['count']);
-            $debug_data[] = $row;
-        }
-        error_log("Age distribution raw data: " . print_r($debug_data, true));
-        error_log("Total cases in distribution: " . array_sum($distribution_data['counts']));
-
-        // Add distribution data to the stats summary
-        $stats_summary['distribution'] = $distribution_data;
-        
-        // After executing the query, add this debug log:
-        $total_histogram_count = array_sum($distribution_data['counts']);
-        error_log("Histogram total count: $total_histogram_count should match total processed: " . $total_processed['total_processed']);
-
-        // Format the data for the chart - using the raw data directly
-        $stats_summary['histogram_data'] = array_map(function($age, $count) {
-            return [
-                'start' => intval($age),
-                'end' => intval($age),
-                'count' => intval($count)
-            ];
-        }, $distribution_data['labels'], $distribution_data['counts']);
-        
-        return $stats_summary;
-        
-    } catch (Exception $e) {
-        error_log("Error in getCaseAgeStatistics: " . $e->getMessage());
-        return ['error' => 'Internal server error'];
-    }
-}
-
-/**
- * Get Historical and Projected Grant Ages
- * 
- * @param int $visa_type_id The visa type ID
- * @return array Historical and projected grant age data
- */
-function getGrantAgeProjection($visa_type_id) {
-    global $conn;
-    
-    try {
-        // Get queue metrics using Little's Law
-        $queue_metrics = calculateLittlesLaw($visa_type_id, $application_date ?? null);
-        if (isset($queue_metrics['error'])) {
-            throw new Exception($queue_metrics['error']);
-        }
-
-        // Get existing data
-        $allocations = getAllocationsRemaining($visa_type_id);
-        $total_processed = getTotalProcessedToDate($visa_type_id);
-        $processing_rate = $queue_metrics['processing_rate']; // Use Little's Law processing rate
-        
-        // Calculate remaining places before cap
-        $remaining_places = $allocations['remaining'];
-        $total_allocation = $allocations['total_allocation'];
-        
-        // Get historical modal ages by month
-        $historical_query = "
-            WITH MonthlyProcessing AS (
-                SELECT 
-                    vl.lodged_month,
-                    curr.update_month,
-                    GREATEST(0, prev.queue_count - curr.queue_count) as processed_count,
-                    TIMESTAMPDIFF(MONTH, vl.lodged_month, curr.update_month) as age_at_grant
-                FROM visa_queue_updates curr
-                JOIN visa_lodgements vl ON curr.lodged_month_id = vl.id
-                LEFT JOIN visa_queue_updates prev 
-                    ON prev.lodged_month_id = curr.lodged_month_id
-                    AND prev.update_month = (
-                        SELECT MAX(update_month)
-                        FROM visa_queue_updates
-                        WHERE update_month < curr.update_month
-                        AND lodged_month_id = curr.lodged_month_id
-                    )
-                WHERE vl.visa_type_id = ?
-                AND prev.queue_count IS NOT NULL
-            ),
-            MonthlyTotals AS (
-                SELECT 
-                    DATE_FORMAT(update_month, '%Y-%m-01') as month,
-                    SUM(processed_count) as total_processed,
-                    SUM(SUM(processed_count)) OVER (ORDER BY DATE_FORMAT(update_month, '%Y-%m-01')) as running_total
-                FROM MonthlyProcessing
-                GROUP BY DATE_FORMAT(update_month, '%Y-%m-01')
-            ),
-            AgeGroups AS (
-                SELECT 
-                    DATE_FORMAT(update_month, '%Y-%m-01') as month,
-                    age_at_grant,
-                    SUM(processed_count) as count_at_age,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY DATE_FORMAT(update_month, '%Y-%m-01') 
-                        ORDER BY SUM(processed_count) DESC
-                    ) as rn
-                FROM MonthlyProcessing
-                GROUP BY 
-                    DATE_FORMAT(update_month, '%Y-%m-01'),
-                    age_at_grant
-            )
-            SELECT 
-                mt.month,
-                ag.age_at_grant as modal_age,
-                mt.total_processed as grants,
-                mt.running_total
-            FROM MonthlyTotals mt
-            LEFT JOIN AgeGroups ag ON mt.month = ag.month AND ag.rn = 1
-            ORDER BY mt.month DESC
-        ";
-
-        // Execute query and get historical data
-        $stmt = mysqli_prepare($conn, $historical_query);
-        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        
-        $historical_data = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $historical_data[] = [
-                'month' => $row['month'],
-                'modal_age' => intval($row['modal_age']),
-                'grants' => intval($row['grants']),
-                'running_total' => intval($row['running_total']),
-                'allocation_status' => number_format(round($row['running_total'])) . " / " . number_format($total_allocation)
-            ];
-        }
-
-        // Get current queue state with age profile
-        $queue_query = "
-            WITH CurrentQueue AS (
-                SELECT 
-                    vl.lodged_month,
-                    vqu.queue_count,
-                    TIMESTAMPDIFF(MONTH, vl.lodged_month, CURRENT_DATE) as current_age
-                FROM visa_lodgements vl
-                JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
-                WHERE vl.visa_type_id = ?
-                AND vqu.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates
-                    WHERE lodged_month_id = vl.id
-                )
-                AND vqu.queue_count > 0
-                ORDER BY lodged_month ASC
-            )
-            SELECT 
-                current_age,
-                SUM(queue_count) as total_in_age_group
-            FROM CurrentQueue
-            GROUP BY current_age
-            ORDER BY current_age ASC";  // Order by age ascending to process oldest first
-
-        $stmt = mysqli_prepare($conn, $queue_query);
-        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        // Build queue data
-        $queue_data = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $queue_data[] = [
-                'age' => intval($row['current_age']),
-                'count' => intval($row['total_in_age_group'])
-            ];
-        }
-
-        // Project next 6 months using Little's Law metrics
-        $projected_data = [];
-        $current_date = new DateTime();
-        $current_date->modify('first day of last month');  // Start from the last month of actual data
-        
-        $cap_reached = false;
-        $running_total = $total_processed['total_processed'];
-        $remaining_queue = $queue_data;
-        
-        // Calculate expected waiting time per Little's Law
-        $waiting_time = $queue_metrics['waiting_time'];
-        $arrival_rate = $queue_metrics['arrival_rate'];
-        $initial_modal_age = $queue_data[0]['age'] ?? 0;
-
-        // Calculate the relationship between modal age and waiting time
-        $age_wait_ratio = $initial_modal_age / $waiting_time;
-
-        for ($i = 0; $i < 6; $i++) {
-            $projection_month = clone $current_date;
-            $projection_month->add(new DateInterval("P{$i}M"));
-            
-            if (!$cap_reached) {
-                // Age the entire queue by one month
-                $aged_queue = [];
-                foreach ($remaining_queue as $group) {
-                    $aged_queue[] = [
-                        'age' => $group['age'] + 1,
-                        'count' => $group['count']
-                    ];
-                }
-
-                // Add new arrivals at age 0
-                $aged_queue[] = [
-                    'age' => 0,
-                    'count' => round($arrival_rate)
-                ];
-
-                // Calculate how many visas will be processed this month
-                $month_processing = min(
-                    $processing_rate,
-                    $total_allocation - $running_total
-                );
-
-                if ($month_processing > 0) {
-                    // Process oldest applications first
-                    usort($aged_queue, function($a, $b) {
-                        return $b['age'] - $a['age'];  // Sort by age descending
-                    });
-
-                    $processed_cases = [];  // Track ages of processed cases
-                    $remaining_to_process = $month_processing;
-                    $updated_queue = [];
-
-                    foreach ($aged_queue as $group) {
-                        if ($remaining_to_process <= 0) {
-                            // No more processing needed, keep remaining cases
-                            $updated_queue[] = $group;
-                            continue;
-                        }
-
-                        $to_process = min($remaining_to_process, $group['count']);
-                        $remaining = $group['count'] - $to_process;
-
-                        // Record the ages of processed cases
-                        if ($to_process > 0) {
-                            $processed_cases[] = [
-                                'age' => $group['age'],
-                                'count' => $to_process
-                            ];
-                        }
-
-                        if ($remaining > 0) {
-                            $updated_queue[] = [
-                                'age' => $group['age'],
-                                'count' => $remaining
-                            ];
-                        }
-
-                        $remaining_to_process -= $to_process;
-                    }
-
-                    // Calculate modal age of processed cases
-                    usort($processed_cases, function($a, $b) {
-                        return $b['count'] - $a['count'];  // Sort by count descending
-                    });
-
-                    $modal_processing_age = $processed_cases[0]['age'] ?? 0;
-                    $total_processed = array_sum(array_column($processed_cases, 'count'));
-                    $remaining_queue = $updated_queue;
-                    $running_total += $total_processed;
-
-                    $projected_data[] = [
-                        'month' => $projection_month->format('Y-m-d'),
-                        'modal_age' => $modal_processing_age,  // Most common age of processed cases
-                        'grants' => $total_processed,
-                        'queue_size' => array_sum(array_column($updated_queue, 'count')),
-                        'allocation_status' => number_format(round($running_total)) . " / " . number_format($total_allocation),
-                        'expected_wait' => round(array_sum(array_column($updated_queue, 'count')) / $processing_rate, 1),
-                        'system_utilization' => round($queue_metrics['utilization'], 1)
-                    ];
-
-                    if ($running_total >= $total_allocation) {
-                        $cap_reached = true;
-                    }
-                }
-            }
-            
-            if ($cap_reached) {
-                // Even when cap is reached, age the remaining applications
-                $remaining_queue = array_map(function($item) {
-                    return [
-                        'age' => $item['age'] + 1,
-                        'count' => $item['count']
-                    ];
-                }, $remaining_queue);
-
-                usort($remaining_queue, function($a, $b) {
-                    return $b['count'] - $a['count'];
-                });
-
-                // Make sure we include all the same keys as non-cap-reached scenario
-                $projected_data[] = [
-                    'month' => $projection_month->format('Y-m-d'),
-                    'modal_age' => $remaining_queue[0]['age'] ?? 0,
-                    'grants' => 0,
-                    'queue_size' => array_sum(array_column($remaining_queue, 'count')),
-                    'allocation_status' => number_format($total_allocation) . " / " . number_format($total_allocation),
-                    'expected_wait' => round(array_sum(array_column($remaining_queue, 'count')) / $processing_rate, 1),
-                    'system_utilization' => round($queue_metrics['utilization'], 1),
-                    'note' => 'Processing suspended until next FY'
-                ];
-            }
-        }
-
-        return [
-            'historical' => $historical_data,
-            'projected' => $projected_data,
-            'processing_rate' => $processing_rate,
-            'queue_metrics' => $queue_metrics,
-            'allocation_info' => [
-                'total_allocation' => $total_allocation,
-                'remaining_places' => $remaining_places,
-                'cap_reached' => $cap_reached
-            ]
-        ];
-    } catch (Exception $e) {
-        error_log("Error in getGrantAgeProjection: " . $e->getMessage());
-        return ['error' => 'Internal server error'];
-    }
-}
-
-function calculateProcessingDistribution($queue, $target_processing, $avg_processing_age) {
-    // Sort queue by age
-    usort($queue, function($a, $b) {
-        return $b['age'] - $a['age'];
-    });
-
-    // Calculate normal distribution around average processing age
-    $std_dev = 3; // Standard deviation of 3 months
-    $distribution = [];
-    $total_weight = 0;
-
-    foreach ($queue as $group) {
-        // Calculate probability based on normal distribution
-        $z_score = ($group['age'] - $avg_processing_age) / $std_dev;
-        $probability = exp(-0.5 * pow($z_score, 2)) / ($std_dev * sqrt(2 * M_PI));
-        
-        // Adjust probability based on age (older cases get higher priority)
-        $age_factor = 1 + ($group['age'] / $avg_processing_age);
-        $weight = $probability * $age_factor;
-        
-        $distribution[$group['age']] = $weight;
-        $total_weight += $weight;
-    }
-
-    // Normalize distribution to match target processing
-    $processing_distribution = [];
-    foreach ($distribution as $age => $weight) {
-        $processing_distribution[$age] = round(($weight / $total_weight) * $target_processing);
-    }
-
-    return $processing_distribution;
-}
-
-function calculateAverageProcessingAge($visa_type_id) {
-    global $conn;
-    
-    // Query to get average processing age from recent grants
-    $query = "
-        WITH ProcessedCases AS (
-            SELECT 
-                TIMESTAMPDIFF(MONTH, vl.lodged_month, vqu.update_month) as processing_age,
-                prev.queue_count - vqu.queue_count as processed_count
-            FROM visa_queue_updates vqu
-            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
-            JOIN visa_queue_updates prev ON prev.lodged_month_id = vl.id
-            WHERE vl.visa_type_id = ?
-            AND vqu.update_month > DATE_SUB(CURRENT_DATE, INTERVAL 3 MONTH)
-            AND prev.update_month = (
-                SELECT MAX(update_month)
-                FROM visa_queue_updates
-                WHERE update_month < vqu.update_month
-                AND lodged_month_id = vl.id
-            )
-            AND prev.queue_count > vqu.queue_count
-        )
-        SELECT 
-            AVG(processing_age) as avg_age
-        FROM ProcessedCases";
-
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    $row = mysqli_fetch_assoc($result);
-
-    return round($row['avg_age'] ?? 20, 1); // Default to 20 months if no data
-}
-
-function calculateLittlesLaw($visa_type_id, $application_date = null) {
-    global $conn;
-    
-    try {
-        // Get current queue length (L)
-        $queue_length = getVisasOnHand($visa_type_id);
-        
-        // Get cases ahead if application date is provided
-        $cases_ahead = 0;
-        if ($application_date) {
-            $cases_ahead = getCasesAheadInQueue($visa_type_id, $application_date);
-            $cases_ahead = $cases_ahead['estimated_current_ahead'] ?? $queue_length;
-        }
-        
-        // Calculate arrival rate (λ) - average new applications per month
-        $arrival_query = "
-            WITH MonthlyArrivals AS (
-                SELECT 
-                    DATE_FORMAT(lodged_month, '%Y-%m-01') as month,
-                    SUM(first_count_volume) as new_applications
-                FROM visa_lodgements
-                WHERE visa_type_id = ?
-                AND lodged_month >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
-                GROUP BY DATE_FORMAT(lodged_month, '%Y-%m-01')
-            )
-            SELECT AVG(new_applications) as avg_arrival_rate
-            FROM MonthlyArrivals";
-        
-        $stmt = mysqli_prepare($conn, $arrival_query);
-        mysqli_stmt_bind_param($stmt, 'i', $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $arrival_rate = mysqli_fetch_assoc($result)['avg_arrival_rate'];
-        
-        // Get processing rate (μ) - average processed per month
-        $processing_rate = getWeightedAverageProcessingRate($visa_type_id);
-        
-        // Calculate waiting time based on cases ahead (if available)
-        $waiting_time = $application_date ? 
-            $cases_ahead / $processing_rate : 
-            $queue_length / $processing_rate;
-        
-        // Calculate system utilization (ρ)
-        $utilization = $arrival_rate / $processing_rate;
-        
-        $metrics = [
-            'queue_length' => $queue_length,
-            'cases_ahead' => $cases_ahead,
-            'arrival_rate' => round($arrival_rate, 2),
-            'processing_rate' => round($processing_rate, 2),
-            'waiting_time' => round($waiting_time, 1),
-            'utilization' => round($utilization * 100, 1),
-            'is_stable' => $utilization < 1,
-            'expected_growth' => $arrival_rate > $processing_rate ? 
-                round(($arrival_rate - $processing_rate) * 12, 0) : 0
-        ];
-        
-        if ($utilization > 1) {
-            $metrics['queue_growth_rate'] = $arrival_rate - $processing_rate;
-            $metrics['backlog_months'] = ceil($queue_length / ($processing_rate - $arrival_rate));
-        }
-        
-        return $metrics;
-        
-    } catch (Exception $e) {
-        error_log("Error in calculateLittlesLaw: " . $e->getMessage());
-        return ['error' => 'Error calculating queue metrics'];
-    }
-}
-
-/**
- * Get Monthly Processing Data
- */
-function getMonthlyProcessing($visa_type_id) {
-    global $conn;
-    
-    $query = "
-        WITH MonthlyProcessed AS (
-            SELECT 
-                DATE_FORMAT(vqu.update_month, '%Y-%m-01') as month,
-                SUM(GREATEST(0, prev.queue_count - vqu.queue_count)) as processed_count
-            FROM visa_queue_updates vqu
-            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
-            LEFT JOIN visa_queue_updates prev 
-                ON prev.lodged_month_id = vqu.lodged_month_id
-                AND prev.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates
-                    WHERE update_month < vqu.update_month
-                    AND lodged_month_id = vqu.lodged_month_id
-                )
-            WHERE vl.visa_type_id = ?
-            AND prev.queue_count IS NOT NULL
-            GROUP BY DATE_FORMAT(vqu.update_month, '%Y-%m-01')
-            ORDER BY month DESC
-            LIMIT 12
-        )
-        SELECT 
-            month as update_month,
-            processed_count as total_processed
-        FROM MonthlyProcessed
-        ORDER BY month ASC";
-    
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    
-    $data = [];
-    while ($row = mysqli_fetch_assoc($result)) {
-        $data[] = $row;
-    }
-    
-    return $data;
-}
-
-/**
- * Get Queue Breakdown Data
- */
-function getQueueBreakdown($visa_type_id, $application_date) {
-    global $conn;
-    
-    $query = "
-        WITH QueueByMonth AS (
-            SELECT 
-                vl.lodged_month,
-                vqu.queue_count,
-                vqu.update_month
-            FROM visa_lodgements vl
-            JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
-            WHERE vl.visa_type_id = ?
-            AND vqu.update_month = (
-                SELECT MAX(update_month)
-                FROM visa_queue_updates
-            )
-            ORDER BY vl.lodged_month DESC  /* Newest first */
-        )
-        SELECT 
-            lodged_month as month,
-            queue_count as queue_size
-        FROM QueueByMonth
-        ORDER BY lodged_month DESC";  /* Keep newest first in final result */
-    
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    
-    $months = [];
-    $total_ahead = 0;
-    $your_month = date('Y-m-01', strtotime($application_date));
-    $your_position = null;
-    
-    while ($row = mysqli_fetch_assoc($result)) {
-        $months[] = $row;
-        if ($row['month'] < $your_month) {
-            $total_ahead += $row['queue_size'];
-        } elseif ($row['month'] === $your_month) {
-            // Calculate position within the month
-            $your_position = $total_ahead + ($row['queue_size'] / 2);
-            // Store the total queue size at this point
-            $total_queue_size = $total_ahead + $row['queue_size'];
-        }
-    }
-    
-    return [
-        'months' => $months,
-        'your_month' => $your_month,
-        'your_position' => $your_position,
-        'total_ahead' => $total_ahead,
-        'total_queue_size' => $total_queue_size ?? array_sum(array_column($months, 'queue_size'))
-    ];
-}
-
-/**
- * Get Processing Times Data
- */
-function getProcessingTimes($visa_type_id) {
-    global $conn;
-    
-    $query = "
-        WITH MonthlyProcessing AS (
-            SELECT 
-                vqu.update_month,
-                TIMESTAMPDIFF(MONTH, vl.lodged_month, vqu.update_month) as age_at_grant,
-                prev.queue_count - vqu.queue_count as processed_count
-            FROM visa_queue_updates vqu
-            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
-            LEFT JOIN visa_queue_updates prev 
-                ON prev.lodged_month_id = vqu.lodged_month_id
-                AND prev.update_month = (
-                    SELECT MAX(update_month)
-                    FROM visa_queue_updates
-                    WHERE update_month < vqu.update_month
-                    AND lodged_month_id = vqu.lodged_month_id
-                )
-            WHERE vl.visa_type_id = ?
-            AND prev.queue_count IS NOT NULL
-            AND prev.queue_count > vqu.queue_count
-        ),
-        AgeGroups AS (
-            SELECT 
-                DATE_FORMAT(update_month, '%Y-%m-01') as month,
-                age_at_grant,
-                SUM(processed_count) as count_at_age,
-                ROW_NUMBER() OVER (
-                    PARTITION BY DATE_FORMAT(update_month, '%Y-%m-01') 
-                    ORDER BY SUM(processed_count) DESC
-                ) as rn
-            FROM MonthlyProcessing
-            GROUP BY 
-                DATE_FORMAT(update_month, '%Y-%m-01'),
-                age_at_grant
-        )
-        SELECT 
-            month,
-            age_at_grant as modal_age
-        FROM AgeGroups
-        WHERE rn = 1
-        ORDER BY month ASC
-        LIMIT 12";
-    
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    
-    $data = [];
-    while ($row = mysqli_fetch_assoc($result)) {
-        $data[] = $row;
-    }
-    
-    return $data;
-}
-
-/**
- * Get Grant Age Forecast Data
- */
-function getGrantAgeForecast($visa_type_id, $application_date) {
-    global $conn;
-    
-    // Get the grant age trends data using the same function as the table
-    $query = "
-        WITH RECURSIVE 
-        Months AS (
-            SELECT CURRENT_DATE as month
-            UNION ALL
-            SELECT DATE_ADD(month, INTERVAL 1 MONTH)
-            FROM Months
-            WHERE month < DATE_ADD(CURRENT_DATE, INTERVAL 11 MONTH)
-        ),
-        ProcessingStats AS (
-            SELECT 
-                vqu.update_month,
-                TIMESTAMPDIFF(MONTH, vl.lodged_month, vqu.update_month) as age_at_grant,
-                COUNT(*) as grants_count
-            FROM visa_queue_updates vqu
-            JOIN visa_lodgements vl ON vqu.lodged_month_id = vl.id
-            WHERE vl.visa_type_id = ?
-            AND vqu.queue_count < (
-                SELECT MAX(queue_count) 
-                FROM visa_queue_updates 
-                WHERE lodged_month_id = vqu.lodged_month_id
-            )
-            GROUP BY vqu.update_month, age_at_grant
-        ),
-        MonthlyStats AS (
-            SELECT 
-                update_month,
-                age_at_grant as modal_age,
-                grants_count
-            FROM ProcessingStats ps1
-            WHERE grants_count = (
-                SELECT MAX(grants_count)
-                FROM ProcessingStats ps2
-                WHERE ps1.update_month = ps2.update_month
-            )
-        ),
-        Trends AS (
-            SELECT 
-                DATE_FORMAT(m.month, '%Y-%m-01') as processing_month,
-                COALESCE(
-                    AVG(ms.modal_age) OVER (
-                        ORDER BY m.month 
-                        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
-                    ),
-                    (SELECT AVG(modal_age) FROM MonthlyStats)
-                ) as projected_age
-            FROM Months m
-            LEFT JOIN MonthlyStats ms ON DATE_FORMAT(ms.update_month, '%Y-%m') = DATE_FORMAT(m.month, '%Y-%m')
-        )
-        SELECT 
-            processing_month,
-            ROUND(projected_age, 1) as projected_age,
-            ROUND(projected_age * 0.1, 1) as confidence_range
-        FROM Trends
-        ORDER BY processing_month";
-    
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    
-    $data = [];
-    while ($row = mysqli_fetch_assoc($result)) {
-        $data[] = $row;
-    }
-    
-    return $data;
-}
-
-function calculateProcessingTrend($current_rate, $previous_rate) {
-    if ($previous_rate == 0) return 0;
-    $percentage_change = (($current_rate - $previous_rate) / $previous_rate) * 100;
-    return round($percentage_change, 1);
-}
-
-/**
- * Clear Admin Session Data
- * 
- * @description Clears specific session data based on the provided type
- * @param string|null $type The type of session data to clear ('import', 'feedback', etc.) or null for all
- */
-function clearAdminSession($type = null) {
-    if ($type === null) {
-        // Clear all admin-related session data
-        unset($_SESSION['import_preview']);
-        unset($_SESSION['message']);
-        unset($_SESSION['feedback_data']);
-        // Add any other session keys that need clearing
-    } else {
-        // Clear specific session data
-        switch ($type) {
-            case 'import':
-                unset($_SESSION['import_preview']);
-                break;
-            case 'feedback':
-                unset($_SESSION['feedback_data']);
-                break;
-            case 'message':
-                unset($_SESSION['message']);
-                break;
-        }
-    }
-}
-
-function cleanupDuplicateLodgements($visa_type_id) {
-    global $conn;
-    
-    try {
-        mysqli_begin_transaction($conn);
-        
-        // First, identify duplicates and keep only the one with the highest first_count_volume
-        $query = "
-            DELETE vl1 FROM visa_lodgements vl1
-            INNER JOIN (
-                SELECT lodged_month, visa_type_id, MAX(first_count_volume) as max_count
-                FROM visa_lodgements
-                WHERE visa_type_id = ?
-                GROUP BY lodged_month, visa_type_id
-            ) vl2 ON vl1.lodged_month = vl2.lodged_month 
-                AND vl1.visa_type_id = vl2.visa_type_id
-                AND vl1.first_count_volume < vl2.max_count;
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        
-        // Then, if there are still duplicates, keep only the most recent one (highest ID)
-        $query = "
-            DELETE vl1 FROM visa_lodgements vl1
-            INNER JOIN visa_lodgements vl2 ON 
-                vl1.lodged_month = vl2.lodged_month
-                AND vl1.visa_type_id = vl2.visa_type_id
-                AND vl1.id < vl2.id
-            WHERE vl1.visa_type_id = ?;
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        
-        // Delete any entries with first_count_volume = 0
-        $query = "
-            DELETE FROM visa_lodgements 
-            WHERE visa_type_id = ? 
-            AND first_count_volume = 0;
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        
-        mysqli_commit($conn);
-        return true;
-        
-    } catch (Exception $e) {
-        mysqli_rollback($conn);
-        error_log("Error cleaning up duplicates: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Get User Feedback
- * 
- * @description Retrieves user feedback with analysis data
- * @param int $limit Optional limit on number of records to return
- * @return array Array of feedback records
- */
-function getUserFeedback($limit = null) {
-    global $conn;
-    
-    try {
-        $query = "
-            SELECT 
-                feedback_id,
-                user_id,
-                feedback_text,
-                submitted_at,
-                theme,
-                analysis_json
-            FROM user_feedback 
-            ORDER BY submitted_at DESC
-        ";
-        
-        if ($limit) {
-            $query .= " LIMIT ?";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, "i", $limit);
-        } else {
-            $stmt = mysqli_prepare($conn, $query);
-        }
-        
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        
-        $feedback = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            // Handle the analysis_json field
-            if ($row['analysis_json']) {
-                try {
-                    $row['analysis'] = json_decode($row['analysis_json'], true);
-                } catch (Exception $e) {
-                    error_log("Error decoding analysis JSON for feedback ID {$row['feedback_id']}: " . $e->getMessage());
-                    $row['analysis'] = null;
-                }
-            } else {
-                $row['analysis'] = null;
-            }
-            unset($row['analysis_json']); // Remove the raw JSON from the output
-            
-            $feedback[] = $row;
-        }
-        
-        return [
-            'status' => 'success',
-            'data' => $feedback
-        ];
-        
-    } catch (Exception $e) {
-        error_log("Error getting feedback: " . $e->getMessage());
-        return [
-            'status' => 'error',
-            'message' => 'Failed to retrieve feedback'
-        ];
-    }
-}
-
-/**
- * Save User Feedback
- * 
- * @description Saves user feedback with optional analysis data
- * @param array $data Feedback data including text and optional theme
- * @return array Status of the save operation
- */
-function saveUserFeedback($data) {
-    global $conn;
-    
-    try {
-        $query = "
-            INSERT INTO user_feedback 
-            (user_id, feedback_text, theme, analysis_json) 
-            VALUES (?, ?, ?, ?)
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        $user_id = $data['user_id'] ?? 0;
-        $analysis_json = isset($data['analysis']) ? json_encode($data['analysis']) : null;
-        
-        mysqli_stmt_bind_param($stmt, "isss", 
-            $user_id,
-            $data['feedback_text'],
-            $data['theme'],
-            $analysis_json
-        );
-        
-        if (mysqli_stmt_execute($stmt)) {
-            return [
-                'status' => 'success',
-                'message' => 'Feedback saved successfully'
-            ];
-        } else {
-            throw new Exception(mysqli_error($conn));
-        }
-        
-    } catch (Exception $e) {
-        error_log("Error saving feedback: " . $e->getMessage());
-        return [
-            'status' => 'error',
-            'message' => 'Failed to save feedback'
-        ];
-    }
 }
 
 // Continue with other core functions...

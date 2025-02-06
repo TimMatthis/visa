@@ -2,503 +2,1069 @@
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
-// Get parameters from POST request
-$visa_type_id = $_POST['visaType'] ?? null;
-$application_year = $_POST['applicationYear'] ?? null;
-$application_month = $_POST['applicationMonth'] ?? null;
-$application_day = $_POST['applicationDay'] ?? null;
-
-if (!$visa_type_id) {
-    echo '<div class="error-message">Visa type is required</div>';
-    exit;
-}
-
-// Get visa queue data
-$debug_data = debugVisaQueueSummary($visa_type_id);
-$result = getVisasOnHand($visa_type_id);
-
-// Get monthly processing data
-$monthly_processing = getProcessedByMonth($visa_type_id);
-
-// Get monthly average processing rate
-$monthly_averages = getMonthlyAverageProcessingRate($visa_type_id);
-
-// Get 3-month weighted average processing rate
-$weighted_average = getWeightedAverageProcessingRate($visa_type_id);
-
-// Get annual allocation
-$annual_allocation = getAnnualAllocation($visa_type_id);
-
-// Get cases ahead in queue (using the application date if provided)
-$application_date = null;
-if ($application_year && $application_month && $application_day) {
-    $application_date = sprintf('%04d-%02d-%02d', $application_year, $application_month, $application_day);
-}
-if ($application_date) {
-    $cases_ahead = getCasesAheadInQueue($visa_type_id, $application_date);
-}
-
-// Get total processed to date
-$total_processed = getTotalProcessedToDate($visa_type_id);
-
-// Get priority cases if application date is provided
-if ($application_date) {
-    $priority_cases = getPriorityCases($visa_type_id, $application_date);
-}
-
-// Get priority ratio if application date is provided
-if ($application_date) {
-    $priority_ratio = getPriorityRatio($visa_type_id, $application_date);
-}
-
-// Get remaining allocations
-$allocations_remaining = getAllocationsRemaining($visa_type_id);
-
-// Get visa processing prediction if application date is provided
-if ($application_date) {
-    error_log("Getting prediction for date: $application_date");
-    $prediction = getVisaProcessingPrediction($visa_type_id, $application_date);
-    error_log("Prediction result: " . print_r($prediction, true));
-}
-
-// Generate the Visas on Hand card
+// Start the HTML document with proper DOCTYPE
 ?>
-<div class="stats-grid">
-    <?php if (isset($prediction) && !isset($prediction['error'])): ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visa Processing Statistics</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    
         <?php
-        error_log("Prediction data: " . print_r($prediction, true));
-        // Calculate months away first
-        $months_away = null;
-        $is_very_overdue = $prediction['is_very_overdue'] ?? false;
-        if (!$prediction['next_fy']) {
-            $today = new DateTime();
-            $prediction_date = new DateTime($prediction['ninety_percent']);
-            $months_away = ($prediction_date->getTimestamp() - $today->getTimestamp()) / (30 * 24 * 60 * 60);
-            
-            // Use application age from prediction data
-            $application_age = (object)[
-                'y' => $prediction['application_age']['years'],
-                'm' => $prediction['application_age']['months']
-            ];
-            error_log("Months away: $months_away");
-            error_log("Is very overdue: " . ($is_very_overdue ? 'true' : 'false'));
-        }
-        ?>
-        <div class="stat-card prediction-highlight <?php 
-            echo (!$prediction['next_fy'] && $months_away <= 3 && !$is_very_overdue) ? 'celebration-mode' : ''; 
-            echo $is_very_overdue ? 'overdue-alert' : '';
-        ?>">
-            <div class="stat-header">
-                <?php if (!$prediction['next_fy']): ?>
-                    <?php if ($is_very_overdue): ?>
-                        <h3>⚠️ Application Status Alert</h3>
-                    <?php elseif ($months_away <= 3): ?>
-                        <h3>🎉 Get Ready for Australia! 🎉</h3>
-                        <canvas id="confetti-canvas"></canvas>
-                    <?php else: ?>
-                        <h3>Your Visa Journey</h3>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <h3>Planning for Your Future Move</h3>
-                <?php endif; ?>
-            </div>
-            <div class="stat-body">
-                <?php if (!$prediction['next_fy']): ?>
-                    <?php if ($is_very_overdue): ?>
-                        <div class="alert-message">
-                            <div class="stat-number">A Quick Check May Be Helpful</div>
+        // Get parameters from POST or GET request
+        $visa_type_id = $_POST['visaType'] ?? $_GET['visaType'] ?? null;
+        $application_year = $_POST['applicationYear'] ?? $_GET['applicationYear'] ?? null;
+        $application_month = $_POST['applicationMonth'] ?? $_GET['applicationMonth'] ?? null;
+        $application_day = $_POST['applicationDay'] ?? $_GET['applicationDay'] ?? null;
+
+        // Initialize $age_stats as null
+        $age_stats = null;
+
+        // Initialize $days_past with a default value
+        $days_past = 0;
+
+        // If no visa type, show a form instead of error
+        if (!$visa_type_id) {
+            ?>
+            <div class="visa-selection-form">
+                <h2>Select Visa Type and Application Date</h2>
+                <form method="GET" action="stats.php">
+                    <div class="form-group">
+                        <label for="visaType">Visa Type:</label>
+                        <select name="visaType" id="visaType" required>
+                            <option value="">Select Visa Type</option>
                             <?php
-                            $ageMessage = getAgeMessage($application_age);
-                            if ($ageMessage): ?>
-                                <div class="application-age">
-                                    <p>Your application is <?php echo $application_age->y; ?> years and <?php echo $application_age->m; ?> months old.</p>
-                                    <p class="age-message"><?php echo $ageMessage; ?></p>
+                            // Get visa types from database
+                            $query = "SELECT id, visa_name FROM visa_types ORDER BY visa_name";
+                            $result = mysqli_query($conn, $query);
+                            while ($row = mysqli_fetch_assoc($result)) {
+                                echo "<option value='{$row['id']}'>{$row['visa_name']}</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Application Date (Optional):</label>
+                        <div class="date-inputs">
+                            <select name="applicationDay">
+                                <option value="">Day</option>
+                                <?php for ($i = 1; $i <= 31; $i++) echo "<option value='$i'>$i</option>"; ?>
+                            </select>
+                            <select name="applicationMonth">
+                                <option value="">Month</option>
+                                <?php for ($i = 1; $i <= 12; $i++) echo "<option value='$i'>$i</option>"; ?>
+                            </select>
+                            <select name="applicationYear">
+                                <option value="">Year</option>
+                                <?php 
+                                $currentYear = date('Y');
+                                for ($i = $currentYear - 5; $i <= $currentYear; $i++) 
+                                    echo "<option value='$i'>$i</option>"; 
+                                ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">View Statistics</button>
+                </form>
+            </div>
+            <?php
+            exit;
+        }
+
+        // Get visa queue data
+        $debug_data = debugVisaQueueSummary($visa_type_id);
+        $result = getVisasOnHand($visa_type_id);
+
+        // Get monthly processing data
+        $monthly_processing = getProcessedByMonth($visa_type_id);
+
+        // Get monthly average processing rate
+        $monthly_averages = getMonthlyAverageProcessingRate($visa_type_id);
+
+        // Get 3-month weighted average processing rate
+        $weighted_average = getWeightedAverageProcessingRate($visa_type_id);
+
+        // Get annual allocation
+        $annual_allocation = getAnnualAllocation($visa_type_id);
+
+        // Get cases ahead in queue (using the application date if provided)
+        $application_date = null;
+        if ($application_year && $application_month && $application_day) {
+            $application_date = sprintf('%04d-%02d-%02d', $application_year, $application_month, $application_day);
+        }
+        if ($application_date) {
+            $cases_ahead = getCasesAheadInQueue($visa_type_id, $application_date);
+        }
+
+        // Get total processed to date
+        $total_processed = getTotalProcessedToDate($visa_type_id);
+
+        // Get priority cases if application date is provided
+        if ($application_date) {
+            $priority_cases = getPriorityCases($visa_type_id, $application_date);
+        }
+
+        // Get priority ratio if application date is provided
+        if ($application_date) {
+            $priority_ratio = getPriorityRatio($visa_type_id, $application_date);
+        }
+
+        // Get remaining allocations
+        $allocations_remaining = getAllocationsRemaining($visa_type_id);
+
+        // Get visa processing prediction if application date is provided
+        if ($application_date) {
+            error_log("Getting prediction for date: $application_date");
+            $prediction = getVisaProcessingPrediction($visa_type_id, $application_date);
+            error_log("Prediction result: " . print_r($prediction, true));
+        }
+
+        // Calculate months_away and is_very_overdue at the top level
+        $months_away = isset($prediction['ninety_percent']) ? 
+            (strtotime($prediction['ninety_percent']) - time()) / (30.44 * 24 * 60 * 60) : 
+            null;
+
+        $is_very_overdue = ($prediction['is_previous_fy'] ?? false) && 
+            isset($prediction['ninety_percent']) && 
+            (new DateTime($prediction['ninety_percent'])) <= (new DateTime())->add(new DateInterval('P1D'));
+
+        // Calculate application age if we have a lodgement date
+        $application_age = null;
+        if (isset($prediction['lodgement_date'])) {
+            $lodgement_date = new DateTime($prediction['lodgement_date']);
+            $today = new DateTime();
+            $application_age = $lodgement_date->diff($today);
+            error_log("Application age calculated: " . $application_age->y . " years, " . $application_age->m . " months"); // Debug log
+        }
+
+        // Get case age statistics if we have an application date
+        if ($application_date) {
+            $age_stats = getCaseAgeStatistics($visa_type_id, $application_date);
+            // Move the debug log here after we have the data
+            error_log("Age Stats Data: " . print_r($age_stats, true));
+        }
+
+        // Helper function to generate share message based on prediction state
+        function generateShareMessage($prediction, $application_age = null, $months_away = null) {
+            // Get age message if we have application_age
+            $ageMessage = null;
+            if ($application_age && $application_age instanceof DateInterval) {
+                $months = ($application_age->y * 12) + $application_age->m;
+                $ageMessage = getAgeMessage($application_age);
+            }
+
+            // Directly use emojis in the message
+            $shareMessage = "�� WhenAmIGoing? Visa Tracker Update 🚀\n\n";
+            
+            if (($prediction['is_overdue'] ?? false)) {
+                $shareMessage .= "🔍 Important Update: Expected Grant\n\n";
+                $shareMessage .= "📋 We believe your application should have already been granted based on our analysis of the queue and processing patterns.\n";
+                $shareMessage .= "⏰ Status: OVERDUE\n";
+                if (isset($application_age)) {
+                    $shareMessage .= "⌛ Processing for: {$application_age->y} years and {$application_age->m} months\n";
+                }
+                $shareMessage .= "📊 Outstanding cases: " . number_format($prediction['cases_ahead']) . "\n";
+                $shareMessage .= "\n🔍 This may indicate a processing delay or technical issue that needs attention.";
+            } 
+            elseif ($prediction['next_fy'] ?? false) {
+                $shareMessage .= "📆 My visa is tracking for next Financial Year (After July 2024) ⭐\n\n";
+                $shareMessage .= "📈 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
+                $shareMessage .= "🎯 Places remaining: " . number_format($prediction['steps']['non_priority_places']) . "\n";
+                $shareMessage .= "\n⭐ Track your journey at WhenAmIGoing.com";
+            }
+            elseif (isset($months_away) && $months_away <= 3) {
+                $today = new DateTime();
+                $grant_date = new DateTime($prediction['eighty_percent']);
+                
+                if ($grant_date <= $today) {
+                    $shareMessage .= "🎉 VISA GRANT IMMINENT! 🎊\n\n";
+                    $shareMessage .= "📋 Your application is currently being processed\n";
+                    $shareMessage .= "⚡ Status: Within processing variation window\n";
+                    $shareMessage .= "👀 Keep an eye on your emails!\n";
+                } else {
+                    // Calculate days and weekends using DateTime::diff
+                    $interval = $today->diff($grant_date);
+                    $days_remaining = $interval->days;
+                    $weekends_remaining = floor($days_remaining / 7);
+                    
+                    $shareMessage .= "🎉 Less than 3 months to go! 🎊\n\n";
+                    $shareMessage .= "⏰ Only {$days_remaining} days until your likely grant date!\n";
+                    $shareMessage .= "📆 That's {$weekends_remaining} weekends to get ready! 🤗\n\n";
+                    $shareMessage .= "📋 Planning Dates:\n";
+                    $shareMessage .= "⭐ Likely (80%): " . date('j F Y', strtotime($prediction['eighty_percent'])) . "\n";
+                    $shareMessage .= "🌟 Latest (100%): " . date('j F Y', strtotime($prediction['latest_date'])) . "\n\n";
+                    $shareMessage .= "📊 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
+                    $shareMessage .= "🌟 Time to start planning your move to Australia! 🇦🇺";
+                }
+            }
+            else {
+                $today = new DateTime();
+                $grant_date = new DateTime($prediction['eighty_percent']);
+                
+                $shareMessage .= "🎯 On Track This Financial Year ⭐\n\n";
+                $shareMessage .= "📆 Recommended Planning Dates:\n";
+                $shareMessage .= "⭐ Likely (80%): " . date('j F Y', strtotime($prediction['eighty_percent'])) . "\n";
+                $shareMessage .= "🌟 Latest (100%): " . date('j F Y', strtotime($prediction['latest_date'])) . "\n\n";
+                $shareMessage .= "📊 Cases ahead: " . number_format($prediction['cases_ahead']) . "\n";
+                $shareMessage .= "💫 We recommend using the 80% date for planning";
+            }
+            
+            $shareMessage .= "\n\n🔗 Track your visa timeline at www.WhenAmIGoing.com 🌍";
+            
+            // Add age message if available
+            if ($ageMessage) {
+                $shareMessage .= "\n\n" . $ageMessage;
+            }
+            
+            // Encode the message for URL
+            return rawurlencode($shareMessage);
+        }
+
+        // Add CSS classes for table styling
+        ?>
+
+        <div class="stats-grid">
+            <?php if (isset($prediction) && !isset($prediction['error'])): ?>
+                <?php if (($prediction['is_overdue'] ?? false)): ?>
+                    <!-- Updated Message Card -->
+                    <div class="stat-card prediction-highlight expected-grant-alert">
+                        <div class="stat-header">
+                            <h3>Hmm, we think your visa should already be processed 🤔</h3>
+                        </div>
+                        <div class="stat-body">
+                            <div class="expected-grant-message">
+                                <div class="prediction-details">
+                                    <div class="detail-item">
+                                        <span class="label">Your Application:</span>
+                                        <span class="value"><?php echo date('j F Y', strtotime($prediction['lodgement_date'])); ?></span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="label">Current Processing Rate:</span>
+                                        <span class="value"><?php echo number_format($prediction['weighted_average']); ?> per month</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="label">Expected Queue Position:</span>
+                                        <span class="value">~<?php echo number_format($prediction['cases_ahead']); ?> applications ahead</span>
+                                    </div>
+                                </div>
+                                <div class="analysis-message">
+                                    <p>Based on these numbers, your application should have been processed by now. Since you're checking here, we assume you haven't received your grant yet.</p>
+                                    
+                                    <p>Common reasons for this:</p>
+                                    <ul class="reasons-list">
+                                        <li>Additional checks or verification required</li>
+                                        <li>Pending requests for information</li>
+                                        <li>Technical issues affecting visibility</li>
+                                    </ul>
+                                </div>
+                                <div class="action-recommendation">
+                                    <p class="reassuring-text">Next steps to check your progress:</p>
+                                    <ol class="action-steps">
+                                        <li>Review ImmiAccount for pending requests</li>
+                                        <li>Consult with a migration agent</li>
+                                        <li>Check status on <a href="https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-processing-times/global-visa-processing-times" target="_blank" class="processing-times-link">Department's website</a></li>
+                                    </ol>
+                                    <div class="contact-info">
+                                        <a href="https://immi.homeaffairs.gov.au/help-support/contact-us" 
+                                           target="_blank" 
+                                           class="contact-button">
+                                            Contact Home Affairs →
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="share-section">
+                            <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age, $months_away); ?>" 
+                               target="_blank" 
+                               class="whatsapp-share-btn">
+                                <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.49 15.59 3.34 17.09L2.1 21.9L7 20.66C8.47 21.47 10.17 21.93 12 21.93C17.52 21.93 22 17.44 22 11.93C22 6.42 17.52 2 12 2ZM8.53 15.92L8.23 15.75C6.98 15.08 6.19 14.17 5.85 13.04C5.5 11.91 5.6 10.65 6.12 9.58C6.65 8.51 7.57 7.69 8.72 7.29C9.87 6.89 11.11 6.94 12.23 7.43C13.34 7.92 14.24 8.82 14.73 9.94C15.22 11.06 15.27 12.3 14.87 13.45C14.47 14.6 13.66 15.52 12.59 16.05C11.52 16.58 10.26 16.67 9.13 16.33L8.91 16.25L6.11 17.13L7 14.38L8.53 15.92Z"/>
+                                </svg>
+                                Share Status
+                            </a>
+                        </div>
+                    </div>
+                    <div class="spacer"></div>
+                <?php endif; ?>
+
+            
+
+                <!-- Main prediction highlight card -->
+                <?php if (!($prediction['is_overdue'] ?? false)): ?>
+                    <div class="stat-card prediction-highlight <?php 
+                        if (!($prediction['next_fy'] ?? false) && isset($months_away) && $months_away <= 3) {
+                            echo 'celebration-mode';
+                        }
+                    ?>">
+                        <div class="stat-header">
+                            <?php if ($prediction['next_fy'] ?? false): ?>
+                                <h3>Planning for Your Future Move (Current Queue Position: <?php echo number_format($cases_ahead['estimated_current_ahead']); ?>)</h3>
+                            <?php elseif (isset($months_away) && $months_away <= 3): ?>
+                                <h3>🎉 Get Ready for Australia! (Current Queue Position: <?php echo number_format($cases_ahead['estimated_current_ahead']); ?>) 🎉</h3>
+                            <?php else: ?>
+                                <h3>On Track This Financial Year (Current Queue Position: <?php echo number_format($cases_ahead['estimated_current_ahead']); ?>)</h3>
+                            <?php endif; ?>
+                        </div>
+                        <div class="stat-body">
+                            <?php if ($prediction['next_fy'] ?? false): ?>
+                                <!-- Next FY message -->
+                                <div class="planning-message">
+                                    <div class="planning-header">Planning Your Move to Australia 🇦🇺</div>
+                                    <div class="planning-explanation">
+                                        Based on current processing patterns, your visa is likely to be granted in the next Financial Year (starting 1 July 2024). You are currently in position <?php echo number_format($cases_ahead['estimated_current_ahead']); ?> in the queue. Here's what you need to know:
+                                    </div>
+                                    <div class="visa-cap-explanation">
+                                        <h4>Understanding Visa Processing</h4>
+                                        <ul>
+                                            <li>The Australian Government has set the permanent migration program cap at 195,000 places for 2023-24</li>
+                                            <li>Once this cap is reached, remaining applications move to the next program year</li>
+                                            <li>Processing isn't strictly first-come-first-served - it depends on how many applications were lodged in previous months</li>
+                                        </ul>
+                                    </div>
+                                    <div class="prediction-details">
+                                        <div class="detail-item">
+                                            <span class="label">Cases Ahead:</span>
+                                            <span class="value"><?php echo number_format($prediction['cases_ahead']); ?></span>
+                                            <span class="explanation">Total number of applications lodged before yours still waiting</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="label">Total Places Remaining:</span>
+                                            <span class="value"><?php echo number_format($allocations_remaining['remaining']); ?></span>
+                                            <span class="explanation">Places left in this year's allocation (<?php echo number_format($allocations_remaining['total_allocation']); ?> total places, <?php echo number_format($allocations_remaining['total_processed']); ?> used)</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="label">Places Available Before Your Case:</span>
+                                            <span class="value"><?php echo number_format($prediction['steps']['non_priority_places']); ?></span>
+                                            <span class="explanation">
+                                                <?php echo number_format($allocations_remaining['remaining']); ?> total places × 
+                                                <?php echo number_format($prediction['steps']['non_priority_ratio'] * 100, 1); ?>% = 
+                                                <?php echo number_format($prediction['steps']['non_priority_places']); ?> places. (We use the ratio of cases this year that were processed ahead of yours to determine this factor.)
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="next-fy-explanation">
+                                        <h4>What This Means For You</h4>
+                                        <p>While your application will likely move to the next program year, this is actually quite common and not a cause for concern. The next program year starts on 1 July 2024, and your application will be well-positioned for processing in the new allocation.</p>
+                                        <p>Processing times can vary because:</p>
+                                        <ul>
+                                            <li>Each month has different numbers of applications from previous lodgements</li>
+                                            <li>The Department processes visas in batches, which can affect timing</li>
+                                            <li>Processing speeds often increase at the start of a new program year</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="share-section">
+                                    <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age, $months_away); ?>" 
+                                       target="_blank" 
+                                       class="whatsapp-share-btn">
+                                        <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.49 15.59 3.34 17.09L2.1 21.9L7 20.66C8.47 21.47 10.17 21.93 12 21.93C17.52 21.93 22 17.44 22 11.93C22 6.42 17.52 2 12 2ZM8.53 15.92L8.23 15.75C6.98 15.08 6.19 14.17 5.85 13.04C5.5 11.91 5.6 10.65 6.12 9.58C6.65 8.51 7.57 7.69 8.72 7.29C9.87 6.89 11.11 6.94 12.23 7.43C13.34 7.92 14.24 8.82 14.73 9.94C15.22 11.06 15.27 12.3 14.87 13.45C14.47 14.6 13.66 15.52 12.59 16.05C11.52 16.58 10.26 16.67 9.13 16.33L8.91 16.25L6.11 17.13L7 14.38L8.53 15.92Z"/>
+                                        </svg>
+                                        Share on WhatsApp
+                                    </a>
+                                </div>
+                            <?php elseif (isset($months_away) && $months_away <= 3): ?>
+                                <!-- Less than 3 months celebration message -->
+                                <div class="stat-card prediction-highlight celebration-mode">
+                                
+                                    <div class="stat-body">
+                                        <?php
+                                        $today = new DateTime();
+                                        $grant_date = new DateTime($prediction['eighty_percent']);
+                                        $lodgement_date = new DateTime($prediction['lodgement_date']);
+                                        $application_age_months = ($today->diff($lodgement_date)->days) / 30.44;
+                                        
+                                        // Calculate remaining time
+                                        $days_remaining = $today->diff($grant_date)->days;
+                                        $weekends_remaining = floor($days_remaining / 7);
+                                        ?>
+                                        
+                                        <div class="countdown-summary">
+                                            <div class="time-remaining">
+                                                <span class="days-number"><?php echo $days_remaining; ?></span>
+                                                <span class="days-label">days until likely grant</span>
+                                            </div>
+                                            <div class="weekends">
+                                                <span class="weekends-number"><?php echo $weekends_remaining; ?></span>
+                                                <span class="weekends-label">weekends to prepare</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="percentile-dates">
+                                            <div class="percentile-date latest">
+                                                <div class="date-label">Latest Expected (100th percentile)</div>
+                                                <div class="date-value"><?php echo date('j F Y', strtotime($prediction['latest_date'])); ?></div>
+                                                <div class="date-note">Worst case scenario</div>
+                                            </div>
+                                            <div class="percentile-date recommended">
+                                                <div class="date-label">Likely Grant Date (80th percentile)</div>
+                                                <div class="date-value"><?php echo date('j F Y', strtotime($prediction['eighty_percent'])); ?></div>
+                                                <div class="date-note">We recommend using this date for planning</div>
+                                            </div>
+                                            <div class="percentile-date optimistic">
+                                                <div class="date-label">Optimistic (70th percentile)</div>
+                                                <div class="date-value"><?php echo date('j F Y', strtotime($prediction['seventy_percent'])); ?></div>
+                                                <div class="date-note">If processing speeds up or you are lucky!</div>
+                                            </div>
+                                        </div>
+
+                                        <?php if ($application_age_months >= 12): ?>
+                                        <div class="document-alert">
+                                            <h4>⚠️ Important Document Notice</h4>
+                                            <p>Your application is over 12 months old. The Department may request:</p>
+                                            <ul>
+                                                <li>New police clearance certificates</li>
+                                                <li>Updated medical examinations (wait for official request)</li>
+                                            </ul>
+                                        </div>
+                                        <?php endif; ?>
+
+                                        <div class="preparation-checklist">
+                                            <h4>🌟 Time to Start Planning!</h4>
+                                            <div class="checklist-items">
+                                                <div class="checklist-item">
+                                                    <span class="emoji">✈️</span>
+                                                    <span class="text">Research flights</span>
+                                                </div>
+                                                <div class="checklist-item">
+                                                    <span class="emoji">🏠</span>
+                                                    <span class="text">Look for accommodation</span>
+                                                </div>
+                                                <div class="checklist-item">
+                                                    <span class="emoji">📦</span>
+                                                    <span class="text">Plan your move</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="share-section">
+                                        <a href="https://wa.me/?text=<?php echo generateShareMessage($prediction, $application_age, $months_away); ?>" 
+                                           target="_blank" 
+                                           class="whatsapp-share-btn celebration">
+                                            <svg class="whatsapp-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.49 15.59 3.34 17.09L2.1 21.9L7 20.66C8.47 21.47 10.17 21.93 12 21.93C17.52 21.93 22 17.44 22 11.93C22 6.42 17.52 2 12 2ZM8.53 15.92L8.23 15.75C6.98 15.08 6.19 14.17 5.85 13.04C5.5 11.91 5.6 10.65 6.12 9.58C6.65 8.51 7.57 7.69 8.72 7.29C9.87 6.89 11.11 6.94 12.23 7.43C13.34 7.92 14.24 8.82 14.73 9.94C15.22 11.06 15.27 12.3 14.87 13.45C14.47 14.6 13.66 15.52 12.59 16.05C11.52 16.58 10.26 16.67 9.13 16.33L8.91 16.25L6.11 17.13L7 14.38L8.53 15.92Z"/>
+                                            </svg>
+                                            Share on Whatsapp
+                                        </a>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <!-- More than 3 months standard message -->
+                                <div class="confidence-message">
+                                    <div class="percentile-dates">
+                                        <div class="percentile-date recommended">
+                                            <div class="date-label">Likely Grant Date (90th percentile)</div>
+                                            <div class="date-value"><?php echo date('j F Y', strtotime($prediction['ninety_percent'])); ?></div>
+                                            <div class="date-note">We recommend using this date for planning</div>
+                                        </div>
+                                        <div class="percentile-date optimistic">
+                                            <div class="date-label">Optimistic (80th percentile)</div>
+                                            <div class="date-value"><?php echo date('j F Y', strtotime($prediction['eighty_percent'])); ?></div>
+                                        </div>
+                                        <div class="percentile-date latest">
+                                            <div class="date-label">Latest Expected (100th percentile)</div>
+                                            <div class="date-value"><?php echo date('j F Y', strtotime($prediction['latest_date'])); ?></div>
+                                        </div>
+                                    </div>
+                                    <div class="queue-details">
+                                        <p>Your position: <?php echo number_format($prediction['cases_ahead']); ?> cases ahead</p>
+                                        <p>Places available: <?php echo number_format($prediction['places_remaining']); ?></p>
+                                        <p>Processing rate: <?php echo number_format($prediction['weighted_average']); ?> per month</p>
+                                    </div>
+                                    <div class="preparation-tips">
+                                        <p>📅 Keep monitoring processing times</p>
+                                        <p>📋 Ensure all your documents are ready</p>
+                                        <p>🎯 Start preliminary planning</p>
+                                    </div>
                                 </div>
                             <?php endif; ?>
-                            <div class="stat-label">
-                                We notice your application has been in process longer than typical.
-                                While this isn't necessarily a concern, it might be worth doing a gentle check-in.
-                            </div>
-                            <div class="action-steps">
-                                <h4>Suggested Next Steps:</h4>
-                                <p>📞 Contact Home Affairs to check your application status</p>
-                                <p>📋 Review your ImmiAccount for any requests or messages</p>
-                                <p>👥 Consult with your migration agent if you have one</p>
-                            </div>
-                            <div class="contact-info">
-                                <p>For Your Reference:</p>
-                                <a href="https://immi.homeaffairs.gov.au/help-support/contact-us" 
-                                   target="_blank" 
-                                   class="contact-link">
-                                    Visit Contact Page →
-                                </a>
-                            </div>
                         </div>
-                    <?php elseif ($months_away <= 3): ?>
-                        <div class="celebration-message">
-                            <div class="stat-number bounce-animation">Less than 3 months to go!</div>
-                            <?php
-                            $today = new DateTime();
-                            $grant_date = new DateTime($prediction['ninety_percent']);
-                            $days_remaining = $today->diff($grant_date)->days;
-                            $weekends_remaining = floor($days_remaining / 7);
-                            ?>
-                            <div class="countdown-weeks">
-                                In fact, it's only <?php echo $days_remaining; ?> days until your likely grant date!
-                                <div class="weekends-note">
-                                    That's <?php echo $weekends_remaining; ?> more weekends to see your friends and get things ready to go 🤗
-                                </div>
-                            </div>
-                            <div class="stat-label">Time to start packing! Here's when you could receive your visa:</div>
-                            
-                            <div class="percentile-dates">
-                                <div class="percentile-date recommended">
-                                    <div class="date-label">Likely Grant Date (90th percentile)</div>
-                                    <div class="date-value"><?php echo date('j F Y', strtotime($prediction['ninety_percent'])); ?></div>
-                                    <div class="date-note">We recommend using this date for planning</div>
-                                </div>
-                                <div class="percentile-date optimistic">
-                                    <div class="date-label">Optimistic (80th percentile)</div>
-                                    <div class="date-value"><?php echo date('j F Y', strtotime($prediction['eighty_percent'])); ?></div>
-                                </div>
-                                <div class="percentile-date latest">
-                                    <div class="date-label">Latest Expected (100th percentile)</div>
-                                    <div class="date-value"><?php echo date('j F Y', strtotime($prediction['latest_date'])); ?></div>
-                                </div>
-                            </div>
-
-                            <div class="celebration-tips">
-                                <p>✈️ Start looking for flights</p>
-                                <p>📦 Begin organizing your move</p>
-                                <p>🏠 Research accommodation options</p>
-                            </div>
-                        </div>
-                    <?php else: ?>
-                        <div class="positive-message">
-                            <div class="stat-number">On track for this year!</div>
-                            <div class="stat-label">We're 90% confident your visa will be granted by <?php echo date('j F Y', strtotime($prediction['ninety_percent'])); ?>.</div>
-                            <div class="preparation-tips">
-                                <p>📅 Keep monitoring processing times</p>
-                                <p>📋 Ensure all your documents are ready</p>
-                                <p>🎯 Start preliminary planning</p>
-                            </div>
-                        </div>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <div class="planning-message">
-                        <div class="stat-label">Your visa is expected to be processed in the next financial year</div>
-                        <div class="future-planning">
-                            <div class="fy-summary">
-                                <div class="fy-numbers">
-                                    <div class="number-item">
-                                        <span class="number"><?php echo number_format($prediction['cases_ahead']); ?></span>
-                                        <span class="label">Cases ahead of you</span>
+                        
+                        <!-- Share to WhatsApp and Calculation Details should be inside the main card -->
+                        <?php if (!($prediction['next_fy'] ?? false)): ?>
+                        
+                        
+                        <div class="calculation-details">
+                            <h4>How We Calculate Your Timeline</h4>
+                            <div class="step-details">
+                                <div class="step-item">
+                                    <div class="step-header">
+                                        <span class="step-number">1</span>
+                                        <span class="step-title">Queue Position</span>
+                                        <div class="step-values">
+                                            <span class="step-value current">
+                                                Current: <?php echo number_format($cases_ahead['estimated_current_ahead']); ?>
+                                            </span>
+                                            <span class="step-value historical">
+                                                Last Update: <?php echo number_format($prediction['cases_ahead']); ?>
+                                                <span class="update-date"><?php echo date('j M Y', strtotime($debug_data['latest_update'])); ?></span>
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div class="number-item">
-                                        <span class="number"><?php echo number_format($prediction['places_remaining']); ?></span>
-                                        <span class="label">Places remaining this year</span>
+                                    <div class="step-explanation">
+                                        • Current position: <?php echo number_format($cases_ahead['estimated_current_ahead']); ?> applications ahead
+                                        • Position at last update (<?php echo date('j M Y', strtotime($debug_data['latest_update'])); ?>): 
+                                          <?php echo number_format($prediction['cases_ahead']); ?> applications
                                     </div>
                                 </div>
-                                <p class="fy-explanation">The Australian Government sets new visa allocations each financial year (July-June). The 2024-25 program has <?php echo number_format(185000); ?> total places, with <?php echo number_format(132200); ?> allocated to skilled visas.</p>
-                            </div>
-                            <div class="planning-tips">
-                                <h4>While You Wait:</h4>
-                                <p>📚 Review your documents and ensure everything is up to date</p>
-                                <p>💼 Continue gaining relevant work experience</p>
-                                <p>📋 Keep your details current in ImmiAccount</p>
-                            </div>
-                            <div class="next-steps">
-                                <p>Stay informed about migration planning levels:</p>
-                                <a href="https://immi.homeaffairs.gov.au/what-we-do/migration-program-planning-levels" 
-                                   target="_blank" 
-                                   class="planning-link">
-                                    View Official Migration Program Details →
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-    <?php endif; ?>
 
-    <div class="stat-card">
-        <div class="stat-header">
-            <h3>Current Visa Queue</h3>
-            <span class="stat-date">As of <?php echo date('j F Y', strtotime($debug_data['latest_update'])); ?></span>
-        </div>
-        <div class="stat-body">
-            <div class="stat-number"><?php echo number_format($result); ?></div>
-            <div class="stat-label">Visas Currently in Queue</div>
-        </div>
-        <div class="stat-footer">
-            <div class="stat-note">Total applications being processed across all lodgement months. This is often referred to Visas on-and</div>
-        </div>
-    </div>
+                                <div class="step-item">
+                                    <div class="step-header">
+                                        <span class="step-number">2</span>
+                                        <span class="step-title">Processing Rates</span>
+                                        <span class="step-value"><?php echo number_format($prediction['steps']['base_rate']); ?> → <?php echo number_format($prediction['steps']['non_priority_rate']); ?></span>
+                                    </div>
+                                    <div class="step-explanation">
+                                        Base rate of <?php echo number_format($prediction['steps']['base_rate']); ?> per month, adjusted to <?php echo number_format($prediction['steps']['non_priority_rate']); ?> 
+                                        for your queue position. This means for every 100 cases processed, <?php echo number_format($prediction['steps']['non_priority_ratio'] * 100, 1); ?> are from your queue position or earlier.
+                                    </div>
+                                </div>
 
-    <div class="stat-card processing-history">
-        <div class="stat-header">
-            <h3>Monthly Processing History</h3>
-            <span class="stat-date">Last <?php echo count($monthly_processing); ?> months</span>
-        </div>
-        <div class="stat-body">
-            <div class="processing-list">
-                <?php foreach ($monthly_processing as $month): ?>
-                    <div class="processing-month">
-                        <div class="month-header">
-                            <span class="month-label"><?php echo date('F Y', strtotime($month['update_month'])); ?></span>
-                            <span class="processed-count"><?php echo number_format($month['total_processed']); ?></span>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <div class="stat-footer">
-            <div class="stat-note">Showing monthly visa processing totals</div>
-        </div>
-    </div>
+                                <div class="step-item">
+                                    <div class="step-header">
+                                        <span class="step-number">3</span>
+                                        <span class="step-title">Queue Movement</span>
+                                        <span class="step-value"><?php echo number_format($prediction['steps']['priority_percentage'] * 100, 1); ?>%</span>
+                                    </div>
+                                    <div class="step-explanation">
+                                        • The percentage of cases processed ahead of your lodgement date (YTD)
+                                        • Typically represents priority processing and special circumstances
+                                        <?php if ($prediction['priority_percentage_capped']): ?>
+                                            <div class="step-note">
+                                                Note: Rate capped at 25% (from <?php echo number_format($prediction['original_priority_percentage'] * 100, 1); ?>%) 
+                                                for conservative estimate
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
 
-    <div class="stat-card average-processing-rate">
-        <div class="stat-header">
-            <h3>Monthly Average Processing Rate</h3>
-            <span class="stat-date">Last <?php echo count($monthly_averages); ?> months</span>
-        </div>
-        <div class="stat-body">
-            <div class="processing-list">
-                <?php foreach ($monthly_averages as $month): ?>
-                    <div class="processing-month">
-                        <div class="month-header">
-                            <span class="month-label"><?php echo date('F Y', strtotime($month['update_month'])); ?></span>
-                            <span class="processed-count"><?php echo number_format($month['total_processed']); ?></span>
-                            <span class="average-rate">Avg: <?php echo number_format($month['running_average'], 2); ?></span>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <div class="stat-footer">
-            <div class="stat-note">Showing running average processing rate</div>
-        </div>
-    </div>
+                                <div class="step-item">
+                                    <div class="step-header">
+                                        <span class="step-number">4</span>
+                                        <span class="step-title">Monthly Progress</span>
+                                        <span class="step-value"><?php echo number_format($prediction['steps']['non_priority_rate']); ?></span>
+                                    </div>
+                                    <div class="step-explanation">
+                                        Your queue position moves forward approximately <?php echo number_format($prediction['steps']['non_priority_rate']); ?> positions each month
+                                    </div>
+                                </div>
 
-    <div class="stat-card weighted-average-rate">
-        <div class="stat-header">
-            <h3>3-Month Weighted Average Processing Rate</h3>
-        </div>
-        <div class="stat-body">
-            <div class="stat-number"><?php echo number_format($weighted_average, 2); ?></div>
-            <div class="stat-label">Weighted Average</div>
-        </div>
-        <div class="stat-footer">
-            <div class="stat-note">Based on the last 3 months - we use this to predict your visa grant date as is more likely to be indicative of the current flow</div>
-        </div>
-    </div>
-
-    <div class="stat-card annual-allocation">
-        <div class="stat-header">
-            <h3>Annual Allocation</h3>
-        </div>
-        <div class="stat-body">
-            <div class="processing-list">
-                <?php foreach ($annual_allocation as $allocation): ?>
-                    <div class="processing-month">
-                        <div class="month-header">
-                            <span class="month-label">FY <?php echo $allocation['financial_year_start']; ?></span>
-                            <span class="processed-count"><?php echo number_format($allocation['allocation_amount']); ?></span>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <div class="stat-footer">
-            <div class="stat-note">Annual visa allocations</div>
-        </div>
-    </div>
-
-    <?php if (isset($cases_ahead) && !isset($cases_ahead['error'])): ?>
-        <div class="stat-card cases-ahead">
-            <div class="stat-header">
-                <h3>Cases Ahead in Queue</h3>
-                <span class="stat-date">As of <?php echo date('j F Y', strtotime($cases_ahead['latest_update'])); ?></span>
-            </div>
-            <div class="stat-body">
-                <div class="stat-number"><?php echo number_format($cases_ahead['total_ahead']); ?></div>
-                <div class="stat-label">Applications Lodged Before <?php echo date('j F Y', strtotime($cases_ahead['lodgement_date'])); ?></div>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Based on current queue numbers for earlier lodgement months</div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <div class="stat-card total-processed">
-        <div class="stat-header">
-            <h3>Total Processed This Year</h3>
-            <span class="stat-date"><?php echo $total_processed['financial_year']; ?></span>
-        </div>
-        <div class="stat-body">
-            <div class="stat-number"><?php echo number_format($total_processed['total_processed']); ?></div>
-            <div class="stat-label">Visas Processed</div>
-        </div>
-        <div class="stat-footer">
-            <div class="stat-note">Total visas processed in current financial year</div>
-        </div>
-    </div>
-
-    <?php if (isset($priority_cases) && !isset($priority_cases['error'])): ?>
-        <div class="stat-card priority-cases">
-            <div class="stat-header">
-                <h3>Priority Cases</h3>
-                <span class="stat-date"><?php echo $priority_cases['financial_year']; ?></span>
-            </div>
-            <div class="stat-body">
-                <div class="stat-number"><?php echo number_format($priority_cases['total_priority']); ?></div>
-                <div class="stat-label">Later Applications Processed</div>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Number of visas processed this year with lodgement dates after <?php echo date('j F Y', strtotime($priority_cases['reference_date'])); ?></div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <?php if (isset($priority_ratio) && !isset($priority_ratio['error'])): ?>
-        <div class="stat-card priority-ratio">
-            <div class="stat-header">
-                <h3>Processing Order Distribution</h3>
-                <span class="stat-date"><?php echo $priority_ratio['financial_year']; ?></span>
-            </div>
-            <div class="stat-body">
-                <div class="stat-number"><?php echo number_format($priority_ratio['priority_percentage'], 1); ?>%</div>
-                <div class="stat-label">Cases Processed from Later Lodgements</div>
-                <div class="ratio-breakdown">
-                    <div class="ratio-item">
-                        <span class="count"><?php echo number_format($priority_ratio['priority_count']); ?></span>
-                        <span class="label">Later Lodgements</span>
-                    </div>
-                    <div class="ratio-item">
-                        <span class="count"><?php echo number_format($priority_ratio['non_priority_count']); ?></span>
-                        <span class="label">Earlier Lodgements</span>
-                    </div>
-                </div>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Shows the distribution of processed cases: those lodged after your date (<?php echo date('j F Y', strtotime($priority_ratio['reference_date'])); ?>) vs. those lodged before</div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <?php if (isset($allocations_remaining) && !isset($allocations_remaining['error'])): ?>
-        <div class="stat-card allocations-remaining">
-            <div class="stat-header">
-                <h3>Allocations Remaining</h3>
-                <span class="stat-date"><?php echo $allocations_remaining['financial_year']; ?></span>
-            </div>
-            <div class="stat-body">
-                <div class="stat-number"><?php echo number_format($allocations_remaining['remaining']); ?></div>
-                <div class="stat-label">Places Available</div>
-                <div class="ratio-breakdown">
-                    <div class="ratio-item">
-                        <span class="count"><?php echo number_format($allocations_remaining['total_processed']); ?></span>
-                        <span class="label">Used</span>
-                    </div>
-                    <div class="ratio-item">
-                        <span class="count"><?php echo number_format($allocations_remaining['total_allocation']); ?></span>
-                        <span class="label">Total</span>
-                    </div>
-                </div>
-                <div class="usage-percentage">
-                    <?php echo number_format($allocations_remaining['percentage_used'], 1); ?>% Used
-                </div>
-            </div>
-            <div class="stat-footer">
-                <div class="stat-note">Remaining visa allocations for <?php echo $allocations_remaining['financial_year']; ?></div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <?php if (isset($prediction) && !isset($prediction['error'])): ?>
-        <div class="stat-card processing-prediction">
-            <div class="stat-header">
-                <h3>Processing Time Prediction</h3>
-                <span class="stat-date">Based on data as of <?php echo date('j F Y', strtotime($prediction['last_update'])); ?></span>
-            </div>
-            <div class="stat-body">
-                <?php if ($prediction['next_fy']): ?>
-                    <div class="next-fy-message">
-                        <div class="stat-label"><?php echo $prediction['message']; ?></div>
-                        <div class="prediction-details">
-                            <div class="detail-item">
-                                <span class="label">Cases Ahead:</span>
-                                <span class="value"><?php echo number_format($prediction['cases_ahead']); ?></span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="label">Places Remaining:</span>
-                                <span class="value"><?php echo number_format($prediction['places_remaining']); ?></span>
+                                <div class="processing-trend">
+                                    <?php 
+                                    // Get forecast data for processing times trend
+                                    $forecast_data = getProcessingTimes($visa_type_id);
+                                    $latest_months = array_slice($forecast_data, -2); // Get last two months
+                                    
+                                    if (count($latest_months) >= 2) {
+                                        $trend = calculateProcessingTrend(
+                                            $latest_months[1]['modal_age'], 
+                                            $latest_months[0]['modal_age']
+                                        );
+                                        $trendIcon = $trend < 0 ? '📉' : '📈'; // Reversed because lower processing time is better
+                                        $trendColor = $trend < 0 ? 'trend-up' : 'trend-down';
+                                    ?>
+                                        <div class="trend-header">
+                                            <span class="trend-title">Processing Times Trend</span>
+                                            <span class="trend-value <?php echo $trendColor; ?>">
+                                                <?php echo $trendIcon; ?> 
+                                                <?php echo abs($trend); ?>% 
+                                                <span class="trend-word">
+                                                    <?php echo $trend < 0 ? 'faster' : '<strong class="trend-slower">slower</strong>'; ?> 
+                                                </span>
+                                                than last month
+                                            </span>
+                                        </div>
+                                        <a href="#" onclick="openTab('visualizations'); document.getElementById('forecast-chart').scrollIntoView({behavior: 'smooth'})" class="trend-link">
+                                            View processing times forecast →
+                                        </a>
+                                    <?php } ?>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                <?php else: ?>
-                    <div class="prediction-dates">
-                        <div class="date-item latest">
-                            <span class="date"><?php echo date('j F Y', strtotime($prediction['latest_date'])); ?></span>
-                            <span class="label">Latest (<?php echo number_format($prediction['steps']['total_cases']); ?> cases)</span>
-                        </div>
-                        <div class="date-item ninety">
-                            <span class="date"><?php echo date('j F Y', strtotime($prediction['ninety_percent'])); ?></span>
-                            <span class="label">90th Percentile (<?php echo number_format($prediction['steps']['ninety_percentile_cases']); ?> cases)</span>
-                        </div>
-                        <div class="date-item eighty">
-                            <span class="date"><?php echo date('j F Y', strtotime($prediction['eighty_percent'])); ?></span>
-                            <span class="label">80th Percentile (<?php echo number_format($prediction['steps']['eighty_percentile_cases']); ?> cases)</span>
-                        </div>
-                    </div>
-                <?php endif; ?>
-                <div class="prediction-steps">
-                    <h4>Calculation Details:</h4>
-                    <div class="step-details">
-                        <div class="step-item">
-                            <span class="label">Queue Shortening Rate:</span>
-                            <span class="value"><?php echo number_format($prediction['steps']['priority_percentage'] * 100, 1); ?>%</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="label">Queue Position Rate:</span>
-                            <span class="value"><?php echo number_format($prediction['steps']['non_priority_ratio'] * 100, 1); ?>%</span>
-                        </div>
-                        <?php if (!$prediction['next_fy']): ?>
-                            <div class="step-item">
-                                <span class="label">Base Processing Rate:</span>
-                                <span class="value"><?php echo number_format($prediction['steps']['weighted_average']); ?> per month</span>
-                            </div>
-                            <div class="step-item">
-                                <span class="label">Processing Rate for Older Cases:</span>
-                                <span class="value"><?php echo number_format($prediction['steps']['non_priority_rate']); ?> per month</span>
-                            </div>
-                            <div class="step-item">
-                                <span class="label">Total Cases Ahead:</span>
-                                <span class="value"><?php echo number_format($prediction['steps']['total_cases']); ?></span>
-                            </div>
-                            <div class="step-item">
-                                <span class="label">90th Percentile Cases:</span>
-                                <span class="value"><?php echo number_format($prediction['steps']['ninety_percentile_cases']); ?></span>
-                            </div>
-                            <div class="step-item">
-                                <span class="label">80th Percentile Cases:</span>
-                                <span class="value"><?php echo number_format($prediction['steps']['eighty_percentile_cases']); ?></span>
-                            </div>
-                            <div class="step-item">
-                                <span class="label">Estimated Processing Time:</span>
-                                <span class="value"><?php echo number_format($prediction['steps']['months_to_process'], 1); ?> months</span>
-                            </div>
                         <?php endif; ?>
                     </div>
+                <?php endif; ?>
+            
+                <div class="stat-card interpretation">
+                    <div class="stat-header">
+                        <h3>Understanding Visa Age and Prediction Dates</h3>
+                        <span class="stat-date"><?php echo date('j F Y', strtotime($application_date)); ?></span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="age-comparison-grid">
+                            <!-- Key Ages Summary -->
+                            <div class="age-comparison-item">
+                                <span class="label">Current Application Age:</span>
+                                <span class="value"><?php echo $age_stats['reference_case']['age']; ?> months</span>
+                            </div>
+                            <div class="age-comparison-item">
+                                <span class="label">Most Common Grant Age:</span>
+                                <span class="value"><?php echo $age_stats['modal_age']; ?> months</span>
+                            </div>
+                            <?php if (!($prediction['next_fy'] ?? false)): ?>
+                                <div class="age-comparison-item">
+                                    <span class="label">Predicted Age at Grant:</span>
+                                    <span class="value">
+                                        <?php 
+                                        $predicted_grant_date = new DateTime($prediction['eighty_percent']);
+                                        $lodgement_date = new DateTime($prediction['lodgement_date']);
+                                        $predicted_age_months = ($predicted_grant_date->diff($lodgement_date)->days) / 30.44;
+                                        echo round($predicted_age_months, 1) . ' months';
+                                        ?>
+                                    </span>
+                                </div>
+                            <?php else: ?>
+                                <div class="age-comparison-item">
+                                    <span class="label">Expected Processing:</span>
+                                    <span class="value">Next Financial Year (After July 2024)</span>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="age-analysis">
+                            <?php
+                            $modal_difference = $age_stats['reference_case']['age'] - $age_stats['modal_age'];
+                            $std_dev = $age_stats['std_dev'];
+                            $is_late = $modal_difference > $std_dev;
+                            ?>
+                            
+                            <div class="age-status <?php echo $is_late ? 'status-late' : ''; ?>">
+                                <h4>Current Status:</h4>
+                                <p>
+                                    Your application is <strong><?php echo abs($modal_difference); ?> months 
+                                    <?php echo $modal_difference > 0 ? 'older' : 'younger'; ?></strong> 
+                                    than the most common grant age.
+                                    <?php if ($is_late): ?>
+                                        <span class="late-indicator">
+                                            ⚠️ Your application is more than one standard deviation (<?php echo number_format($std_dev, 1); ?> months) 
+                                            older than typical processing patterns
+                                        </span>
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+
+                            <?php if (!($prediction['next_fy'] ?? false)): ?>
+                                <div class="prediction-comparison">
+                                    <h4>Looking Ahead:</h4>
+                                    <p>
+                                        Based on current processing rates, your application is predicted to be 
+                                        <strong><?php echo number_format($predicted_age_months, 1); ?> months old</strong> 
+                                        when granted, which will be 
+                                        <strong><?php echo number_format($predicted_age_months - $age_stats['modal_age'], 1); ?> months 
+                                        <?php echo ($predicted_age_months - $age_stats['modal_age']) > 0 ? 'older' : 'younger'; ?></strong> 
+                                        than today's most common grant age.
+                                    </p>
+                                </div>
+                            <?php else: ?>
+                                <div class="prediction-comparison next-fy">
+                                    <h4>Looking Ahead to Next Financial Year:</h4>
+                                    <p>
+                                        Your application will be processed in the next financial year starting July 2024. 
+                                        The exact processing age cannot be predicted yet because:
+                                    </p>
+                                    <ul>
+                                        <li>The migration program budget for 2024-25 has not been announced</li>
+                                        <li>Processing rates may change with the new allocation</li>
+                                        <li>Queue composition can change significantly by then</li>
+                                    </ul>
+                                    <p>
+                                        We recommend checking back after the 2024-25 migration program details are announced 
+                                        (typically in May-June 2024). You can find the latest program details on the 
+                                        <a href="https://immi.homeaffairs.gov.au/what-we-do/migration-program-planning-levels" 
+                                           target="_blank" 
+                                           rel="noopener noreferrer" 
+                                           class="dept-link">Department of Home Affairs Migration Program Planning Levels</a> page.
+                                    </p>
+                                </div>
+                            <?php endif; ?>
+
+                            <div class="important-note">
+                                <h4>⚠️ Important Note About Processing Times</h4>
+                                <?php if (!($prediction['next_fy'] ?? false)): ?>
+                                    <p>Application age alone does not determine processing order. Your position in the queue and the Department's processing rates are the key factors in predicting your grant date.</p>
+                                <?php else: ?>
+                                    <p>While your application will move to the next program year, this is quite common and not a cause for concern. The Department processes applications based on available places in each program year's budget.</p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add this after the "Understanding Visa Age and Prediction Dates" card -->
+                <div class="stat-card full-width-card">
+                    <div class="stat-header">
+                        <h3>Grant Age Trends and Projections</h3>
+                        <span class="stat-date">Historical and Projected Data</span>
+                    </div>
+                    <div class="stat-body grant-age-tables">
+                        <?php
+                        $age_projection = getGrantAgeProjection($visa_type_id);
+                        if (!isset($age_projection['error'])):
+                        ?>
+                            <!-- Historical Data Table -->
+                            <div class="historical-data">
+                                <h4>Historical Grant Ages</h4>
+                                <table class="grant-age-table real-data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Month</th>
+                                            <th>Total Processed / Allocation</th>
+                                            <th>Grants Processed</th>
+                                            <th>Most Common Age at Grant</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($age_projection['historical'] as $data): ?>
+                                            <tr>
+                                                <td><?php echo date('F Y', strtotime($data['month'])); ?></td>
+                                                <td><?php echo $data['allocation_status']; ?></td>
+                                                <td><?php echo number_format($data['grants']); ?></td>
+                                                <td><?php echo $data['modal_age']; ?> months</td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Projected Data Table -->
+                            <div class="projected-data">
+                                <h4>Projected Grant Ages</h4>
+                                <p class="processing-rate">Based on current processing rate of <?php echo number_format($age_projection['processing_rate']); ?> cases per month</p>
+                                <table class="grant-age-table forecast-data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Month</th>
+                                            <th>Total Processed / Allocation</th>
+                                            <th>If grant rate remains at</th>
+                                            <th>Projected Most Common Age</th>
+                                            <th>Remaining Queue Size</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($age_projection['projected'] as $data): ?>
+                                            <tr>
+                                                <td><?php echo date('F Y', strtotime($data['month'])); ?></td>
+                                                <td><?php echo $data['allocation_status']; ?></td>
+                                                <td>
+                                                    <?php if (isset($data['note'])): ?>
+                                                        <?php echo $data['note']; ?>
+                                                    <?php else: ?>
+                                                        <?php echo number_format($data['grants']); ?>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><?php echo $data['modal_age']; ?> months</td>
+                                                <td><?php echo number_format($data['queue_size']); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php else: ?>
+                            <div class="error-message">Unable to load grant age projection data.</div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="stat-footer">
+                        <div class="stat-note">
+                            Historical data shows actual average grant ages. Projections are based on current processing rates and queue composition.
+                        </div>
+                    </div>
+                </div>
+                <?php if (isset($cases_ahead) && !isset($cases_ahead['error'])): ?>
+                <div class="stat-card cases-ahead one-third-card">
+                    <div class="stat-header">
+                        <h3>Cases Ahead in Queue</h3>
+                        <span class="stat-date">Estimated as of <?php echo date('j F Y'); ?></span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-numbers">
+                            <div class="current-estimate">
+                                <div class="stat-number"><?php echo number_format($cases_ahead['estimated_current_ahead']); ?></div>
+                                <div class="stat-label">Estimated Current Position</div>
+                            </div>
+                            <div class="last-update">
+                                <div class="stat-number"><?php echo number_format($cases_ahead['total_ahead']); ?></div>
+                                <div class="stat-label">Position as of <?php echo date('j F Y', strtotime($cases_ahead['latest_update'])); ?></div>
+                            </div>
+                        </div>
+                        <div class="estimate-details">
+                            <div class="detail-item">
+                                <span class="label">Processing Rate:</span>
+                                <span class="value"><?php echo number_format($cases_ahead['monthly_processing_rate']); ?> per month</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Processed Since Update:</span>
+                                <span class="value">~<?php echo number_format($cases_ahead['estimated_processed_since_update']); ?></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Days Since Update:</span>
+                                <span class="value"><?php echo number_format($cases_ahead['days_since_update']); ?> days</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-footer">
+                        <div class="stat-note">
+                            Current position is estimated based on processing rate of <?php echo number_format($cases_ahead['monthly_processing_rate']); ?> cases per month
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>   
+            
+
+            <!-- Current Visa Queue card -->
+            <div class="stat-card one-third-card">
+                <div class="stat-header">
+                    <h3>Current Visa Queue</h3>
+                    <span class="stat-date">As of <?php echo date('j F Y', strtotime($debug_data['latest_update'])); ?></span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-number"><?php echo number_format($result); ?></div>
+                    <div class="stat-label">Visas Currently in Queue</div>
+                </div>
+                <div class="stat-footer">
+                    <div class="stat-note">Total applications being processed across all lodgement months. This is often referred to Visas on-and</div>
                 </div>
             </div>
-            <div class="stat-footer">
-                <div class="stat-note">
-                    Prediction based on current processing rates and queue position. 
-                    Actual processing times may vary.
+
+            <?php if (isset($application_date)): ?>
+                <?php 
+                if (!isset($age_stats['error'])):
+                ?>
+
+                <div class="stat-card age-distribution one-third-card">
+                    <div class="stat-header">
+                        <h3>Processing Age Distribution</h3>
+                        <span class="stat-date"><?php echo $age_stats['financial_year']; ?></span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stats-grid">
+                            <div class="stat-column">
+                                <h4>Processing Age Distribution</h4>
+                                <div class="stat-row">
+                                    <span class="label">Mean Age at Grant:</span>
+                                    <span class="value"><?php echo $age_stats['mean_age']; ?> months</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="label">Most Common Age (Mode):</span>
+                                    <span class="value"><?php echo $age_stats['modal_age']; ?> months</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="label">Standard Deviation:</span>
+                                    <span class="value">±<?php echo $age_stats['std_dev']; ?> months</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="label">Typical Range (±1 SD):</span>
+                                    <span class="value"><?php echo $age_stats['std_dev_range']['lower']; ?> to <?php echo $age_stats['std_dev_range']['upper']; ?> months</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-footer">
+                        <div class="stat-note">Based on cases lodged during <?php echo $allocations_remaining['financial_year']; ?></div>
+                    </div>  
+                </div>
+
+                     
+                
+               
+                <?php endif; ?>
+
+
+            <div class="stat-card processing-history one-third-card">
+                <div class="stat-header">
+                    <h3>Monthly Processing History</h3>
+                    <span class="stat-date">Last <?php echo count($monthly_processing); ?> months</span>
+                </div>
+                <div class="stat-body">
+                    <div class="processing-list">
+                        <?php foreach ($monthly_processing as $month): ?>
+                            <div class="processing-month">
+                                <div class="month-header">
+                                    <span class="month-label"><?php echo date('F Y', strtotime($month['update_month'])); ?></span>
+                                    <span class="processed-count"><?php echo number_format($month['total_processed']); ?></span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="stat-footer">
+                    <div class="stat-note">Showing monthly visa processing totals</div>
                 </div>
             </div>
+            <div class="stat-card average-processing-rate one-third-card">
+                <div class="stat-header">
+                    <h3>Monthly Average Processing Rate</h3>
+                    <span class="stat-date">Last <?php echo count($monthly_averages); ?> months</span>
+                </div>
+                <div class="stat-body">
+                    <div class="processing-list">
+                        <?php foreach ($monthly_averages as $month): ?>
+                            <div class="processing-month">
+                                <div class="month-header">
+                                    <span class="month-label"><?php echo date('F Y', strtotime($month['update_month'])); ?></span>
+                                    <span class="processed-count"><?php echo number_format($month['total_processed']); ?></span>
+                                    <span class="average-rate">Avg: <?php echo number_format($month['running_average'], 2); ?></span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="stat-footer">
+                    <div class="stat-note">Showing running average processing rate</div>
+                </div>
+            </div>
+                   
+
+          
+
+            <div class="stat-card weighted-average-rate one-third-card">
+                <div class="stat-header">
+                    <h3>3-Month Weighted Average Processing Rate</h3>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-number"><?php echo number_format($weighted_average, 2); ?></div>
+                    <div class="stat-label">Weighted Average</div>
+                </div>
+                <div class="stat-footer">
+                    <div class="stat-note">Based on the last 3 months - we use this to predict your visa grant date as is more likely to be indicative of the current flow</div>
+                </div>
+            </div>
+
+            <div class="stat-card annual-allocation one-third-card">
+                <div class="stat-header">
+                    <h3>Annual Allocation</h3>
+                </div>
+                <div class="stat-body">
+                    <div class="processing-list">
+                        <?php foreach ($annual_allocation as $allocation): ?>
+                            <div class="processing-month">
+                                <div class="month-header">
+                                    <span class="month-label">FY <?php echo $allocation['financial_year_start']; ?></span>
+                                    <span class="processed-count"><?php echo number_format($allocation['allocation_amount']); ?></span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="stat-footer">
+                    <div class="stat-note">Annual visa allocations</div>
+                </div>
+            </div>
+            
+            
+
+            <div class="stat-card total-processed one-third-card">
+                <div class="stat-header">
+                    <h3>Total Processed This Year</h3>
+                    <span class="stat-date"><?php echo $total_processed['financial_year']; ?></span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-number"><?php echo number_format($total_processed['total_processed']); ?></div>
+                    <div class="stat-label">Visas Processed</div>
+                </div>
+                <div class="stat-footer">
+                    <div class="stat-note">Total visas processed in current financial year</div>
+                </div>
+            </div>
+
+            <?php if (isset($priority_cases) && !isset($priority_cases['error'])): ?>
+                <div class="stat-card priority-cases one-third-card">
+                    <div class="stat-header">
+                        <h3>Cases granted to applications younger than yours</h3>
+                        <span class="stat-date"><?php echo $priority_cases['financial_year']; ?></span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-number"><?php echo number_format($priority_cases['total_priority']); ?></div>
+                        <div class="stat-label">Later Applications Processed</div>
+                    </div>
+                    <div class="stat-footer">
+                        <div class="stat-note">Number of visas processed this year with lodgement dates after <?php echo date('j F Y', strtotime($priority_cases['reference_date'])); ?></div>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($priority_ratio) && !isset($priority_ratio['error'])): ?>
+                <div class="stat-card priority-ratio one-third-card">
+                    <div class="stat-header">
+                        <h3>Processing Order Distribution</h3>
+                        <span class="stat-date"><?php echo $priority_ratio['financial_year']; ?></span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-number"><?php echo number_format($priority_ratio['priority_percentage'], 1); ?>%</div>
+                        <div class="stat-label">Cases Processed from Later Lodgements</div>
+                        <div class="ratio-breakdown">
+                            <div class="ratio-item">
+                                <span class="count"><?php echo number_format($priority_ratio['priority_count']); ?></span>
+                                <span class="label">Later Lodgements</span>
+                            </div>
+                            <div class="ratio-item">
+                                <span class="count"><?php echo number_format($priority_ratio['non_priority_count']); ?></span>
+                                <span class="label">Earlier Lodgements</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-footer">
+                        <div class="stat-note">Shows the distribution of processed cases: those lodged after your date (<?php echo date('j F Y', strtotime($priority_ratio['reference_date'])); ?>) vs. those lodged before</div>
+                    </div>
+
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($allocations_remaining) && !isset($allocations_remaining['error'])): ?>
+                <div class="stat-card allocations-remaining one-third-card">
+                    <div class="stat-header">
+                        <h3>Allocations Remaining</h3>
+                        <span class="stat-date"><?php echo $allocations_remaining['financial_year']; ?></span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-number"><?php echo number_format($allocations_remaining['remaining']); ?></div>
+                        <div class="stat-label">Places Available</div>
+                        <div class="ratio-breakdown">
+                            <div class="ratio-item">
+                                <span class="count"><?php echo number_format($allocations_remaining['total_processed']); ?></span>
+                                <span class="label">Used</span>
+                            </div>
+                            <div class="ratio-item">
+                                <span class="count"><?php echo number_format($allocations_remaining['total_allocation']); ?></span>
+                                <span class="label">Total</span>
+                            </div>
+                        </div>
+                        <div class="usage-percentage">
+                            <?php echo number_format($allocations_remaining['percentage_used'], 1); ?>% Used
+                        </div>
+                    </div>
+                    <div class="stat-footer">
+                        <div class="stat-note">Remaining visa allocations for <?php echo $allocations_remaining['financial_year']; ?></div>
+                    </div>
+                   
+                    
+                </div>
+                
+                <?php endif; ?>  
+            
+            
+            <?php endif; ?>
+
+            
+            <?php endif; ?>
+
+          
+            
+
+           
+
+
         </div>
-    <?php endif; ?>
-</div> 
+
+    
+
+</div>
+</body>
+</html>
+

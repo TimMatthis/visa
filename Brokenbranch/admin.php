@@ -1,11 +1,4 @@
 <?php
-// Ensure no output buffering conflicts
-while (ob_get_level()) ob_end_clean();
-ob_start();
-
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 // Set a custom error log file path
 ini_set('error_log', __DIR__ . '/error_log.txt');
 
@@ -63,14 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif (isset($_POST['confirm_import']) && isset($_SESSION['import_preview'])) {
-        // Prevent any output and ensure we're only sending JSON
-        ob_clean();
-        header('Content-Type: application/json');
-        header('Cache-Control: no-cache, must-revalidate');
+        error_log("Processing confirmed import");
         
         try {
             // Process the import using the preview data
-            $result = processVisaQueueImport(
+            $message = processVisaQueueImport(
                 $_SESSION['import_preview']['file_info'],
                 $_SESSION['import_preview']['file_info']['delimiter']
             );
@@ -78,25 +68,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Clean up the temporary file
             cleanupImportFile($_SESSION['import_preview']['file_info']['tmp_name']);
             
-            error_log("Import result: " . print_r($result, true));
+            error_log("Import result: " . print_r($message, true));
             unset($_SESSION['import_preview']); // Clear the preview after import
             
-            // Send JSON response and exit immediately
-            echo json_encode([
-                'status' => 'success',
-                'message' => $result['message'] ?? 'Import completed successfully',
-                'complete' => true
-            ]);
-            exit();
+            // Add success flag to trigger JS notification
+            $message['complete'] = true;
             
         } catch (Exception $e) {
-            error_log("Import error: " . $e->getMessage());
-            echo json_encode([
+            $message = [
                 'status' => 'error',
                 'message' => 'Import failed: ' . $e->getMessage(),
                 'complete' => true
-            ]);
-            exit();
+            ];
         }
     } elseif (isset($_POST['cancel_import']) && isset($_SESSION['import_preview'])) {
         // Clean up on cancel
@@ -148,42 +131,49 @@ $visa_types = getAllVisaTypes($conn);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Visa Predictor</title>
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/admin.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Add this script block in the head -->
     <script>
         // Make switchTab globally available
-        function switchTab(tabId) {
-            // Clear any existing messages or session data
-            fetch('clear_session.php?type=' + tabId)
-                .then(() => {
-                    console.log('Switching to tab:', tabId);
-                    
-                    // Hide all tab contents
-                    var tabContents = document.querySelectorAll('.tab-content');
-                    console.log('Found tab contents:', tabContents.length);
-                    
-                    tabContents.forEach(function(tab) {
-                        tab.style.display = 'none';
-                    });
-                    
-                    // Show the selected tab
-                    var selectedTab = document.getElementById(tabId);
-                    if (selectedTab) {
-                        selectedTab.style.display = 'block';
-                    }
-                    
-                    // Update active state of tab buttons
-                    var tabButtons = document.querySelectorAll('.tab-btn');
-                    tabButtons.forEach(function(button) {
-                        button.classList.remove('active');
-                        if (button.getAttribute('onclick').includes(tabId)) {
-                            button.classList.add('active');
-                        }
-                    });
-                })
-                .catch(error => console.error('Error clearing session:', error));
+        window.switchTab = function(tabId) {
+            console.log('Switching to tab:', tabId);
+            
+            // Hide all tab contents
+            var tabContents = document.querySelectorAll('.tab-content');
+            console.log('Found tab contents:', tabContents.length);
+            
+            tabContents.forEach(function(tab) {
+                tab.style.display = 'none';
+                console.log('Hiding tab:', tab.id);
+            });
+
+            // Remove active class from all buttons
+            var tabButtons = document.querySelectorAll('.tab-btn');
+            console.log('Found tab buttons:', tabButtons.length);
+            
+            tabButtons.forEach(function(button) {
+                button.classList.remove('active');
+                console.log('Removing active class from button:', button.textContent);
+            });
+
+            // Show the selected tab content
+            var selectedTab = document.getElementById(tabId);
+            if (selectedTab) {
+                console.log('Showing selected tab:', tabId);
+                selectedTab.style.display = 'block';
+            } else {
+                console.error('Could not find tab with id:', tabId);
+            }
+
+            // Add active class to the clicked button
+            var activeButton = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
+            if (activeButton) {
+                console.log('Setting active button:', activeButton.textContent);
+                activeButton.classList.add('active');
+            } else {
+                console.error('Could not find button for tab:', tabId);
+            }
         };
 
         // Initialize when the page loads
@@ -245,28 +235,20 @@ $visa_types = getAllVisaTypes($conn);
             }
         });
 
-        function openTab(event, tabName) {
-            var i, tabcontent, tablinks;
-            
-            // Clear any existing messages or session data when switching tabs
-            fetch('clear_session.php?type=' + tabName)
-                .catch(error => console.error('Error clearing session:', error));
-            
+        function openTab(event, tabId) {
             // Hide all tab contents
-            tabcontent = document.getElementsByClassName("tab-content");
-            for (i = 0; i < tabcontent.length; i++) {
-                tabcontent[i].style.display = "none";
-            }
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(tab => tab.style.display = 'none');
 
             // Remove active class from all tab buttons
-            tablinks = document.getElementsByClassName("tab-btn");
-            for (i = 0; i < tablinks.length; i++) {
-                tablinks[i].className = tablinks[i].className.replace(" active", "");
-            }
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            tabButtons.forEach(button => button.classList.remove('active'));
 
-            // Show the selected tab and mark it as active
-            document.getElementById(tabName).style.display = "block";
-            event.currentTarget.className += " active";
+            // Show the selected tab content
+            document.getElementById(tabId).style.display = 'block';
+
+            // Add active class to the clicked tab button
+            event.currentTarget.classList.add('active');
         }
 
         // Initialize the first tab as active
@@ -343,15 +325,11 @@ $visa_types = getAllVisaTypes($conn);
                 <?php endif; ?>
 
                 <div class="import-actions">
-                    <form method="POST" class="inline-form" onsubmit="return startImport(this);" action="handle_import.php">
+                    <form method="POST" class="inline-form" onsubmit="return startImport(this);">
                         <input type="hidden" name="confirm_import" value="1">
-                        <input type="hidden" name="visa_type" value="<?php echo htmlspecialchars($_SESSION['import_preview']['file_info']['visa_type']); ?>">
-                        <input type="hidden" name="file_info" value="<?php echo htmlspecialchars(json_encode($_SESSION['import_preview']['file_info'])); ?>">
-                        <input type="hidden" name="preview_data" value="<?php echo htmlspecialchars(json_encode($_SESSION['import_preview'])); ?>">
                         <button type="submit" class="proceed-btn" id="proceed-btn">Proceed with Import</button>
                     </form>
                     <form method="POST" class="inline-form">
-                        <input type="hidden" name="cancel_import" value="1">
                         <button type="submit" class="cancel-btn" id="cancel-btn">Cancel Import</button>
                     </form>
                 </div>
@@ -364,7 +342,6 @@ $visa_types = getAllVisaTypes($conn);
             <button class="tab-btn" onclick="openTab(event, 'manageVisaTypes')">Manage Visa Types</button>
             <button class="tab-btn" onclick="openTab(event, 'dataManagement')">Data Management</button>
             <button class="tab-btn" onclick="openTab(event, 'dataSummary')">Data Summary</button>
-            <button class="tab-btn" onclick="openFeedbackTab(this)">User Feedback</button>
         </div>
 
         <div id="import" class="tab-content" style="display: block;">
@@ -408,7 +385,7 @@ $visa_types = getAllVisaTypes($conn);
                 <form action="" method="GET" class="visa-selector">
                     <div class="form-group">
                         <label for="visa_type">Select Visa Type:</label>
-                        <select name="visa_type" onchange="handleVisaTypeChange(this)">
+                        <select name="visa_type" onchange="this.form.submit()">
                             <option value="">Select Visa Type</option>
                             <?php foreach ($visa_types as $type): ?>
                                 <option value="<?php echo $type['id']; ?>" 
@@ -417,15 +394,10 @@ $visa_types = getAllVisaTypes($conn);
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <!-- Add hidden input for current tab -->
-                        <input type="hidden" name="tab" value="view">
                     </div>
                 </form>
 
                 <?php if (isset($_GET['visa_type'])): 
-                    // Clean up any duplicates first
-                    cleanupDuplicateLodgements($_GET['visa_type']);
-                    // Then get the queue data
                     $queue_data = getVisaQueueData($_GET['visa_type']);
                     if ($queue_data): ?>
                     <div class="queue-data">
@@ -436,7 +408,6 @@ $visa_types = getAllVisaTypes($conn);
                                     <th>Lodgement Month</th>
                                     <th>Initial Count</th>
                                     <th>Latest Count</th>
-                                    <th>Movement</th>
                                     <th>Processing Rate</th>
                                     <th>Actions</th>
                                 </tr>
@@ -444,25 +415,17 @@ $visa_types = getAllVisaTypes($conn);
                             <tbody>
                                 <?php foreach ($queue_data['lodgements'] as $lodgement): 
                                     $latest_count = end($lodgement['updates'])['queue_count'];
-                                    $movement = $lodgement['first_count'] - $latest_count;
-                                    $movement_class = $movement > 0 ? 'positive' : ($movement < 0 ? 'negative' : 'neutral');
                                     $processing_rate = $lodgement['first_count'] > 0 
                                         ? round((($lodgement['first_count'] - $latest_count) / $lodgement['first_count']) * 100, 1)
                                         : 0;
                                 ?>
                                 <tr>
                                     <td><?php echo date('M Y', strtotime($lodgement['lodged_month'])); ?></td>
-                                    <td><?php echo number_format((float)$lodgement['first_count'], 0); ?></td>
-                                    <td><?php echo number_format((float)$lodgement['latest_count'], 0); ?></td>
-                                    <td class="<?php echo $movement_class; ?>">
-                                        <?php 
-                                            echo $movement > 0 ? '+' : '';
-                                            echo number_format((float)$movement, 0); 
-                                        ?>
-                                    </td>
+                                    <td><?php echo number_format($lodgement['first_count']); ?></td>
+                                    <td><?php echo number_format($latest_count); ?></td>
                                     <td>
                                         <div class="progress-bar" style="--progress: <?php echo $processing_rate; ?>%">
-                                            <?php echo number_format((float)$processing_rate, 1); ?>%
+                                            <?php echo $processing_rate; ?>%
                                         </div>
                                     </td>
                                     <td>
@@ -474,7 +437,12 @@ $visa_types = getAllVisaTypes($conn);
                             </tbody>
                         </table>
                     </div>
-                    
+                    <div class="graph-section">
+                        <h3>Processing Trends</h3>
+                        <div class="chart-container">
+                            <canvas id="processingTrends"></canvas>
+                        </div>
+                    </div>
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
@@ -482,22 +450,24 @@ $visa_types = getAllVisaTypes($conn);
 
         <div id="manageVisaTypes" class="tab-content">
             <section class="admin-section">
-                <h2>Manage Visa Types</h2>
-                <div class="visa-management">
-                    <div class="add-visa-form">
+                <h2>4. Manage Visa Types</h2>
+                <div class="visa-types-container">
+                    <div class="add-visa-type">
                         <h3>Add New Visa Type</h3>
-                        <form action="" method="POST">
+                        <form action="" method="POST" class="add-visa-form">
                             <div class="form-group">
                                 <label for="visa_type">Visa Type:</label>
-                                <input type="text" 
-                                       name="visa_type" 
-                                       id="visa_type"
-                                       required 
-                                       maxlength="10" 
-                                       pattern="[0-9]+" 
-                                       placeholder="e.g. 189">
+                                <div class="input-button-group">
+                                    <input type="text" 
+                                           name="visa_type" 
+                                           id="visa_type"
+                                           required 
+                                           maxlength="10" 
+                                           pattern="[0-9]+" 
+                                           placeholder="e.g. 189">
+                                    <button type="submit" name="add_visa_type" class="edit-btn">Add Visa Type</button>
+                                </div>
                             </div>
-                            <button type="submit" name="add_visa_type" class="btn btn-primary">Add Visa Type</button>
                         </form>
                     </div>
 
@@ -529,23 +499,11 @@ $visa_types = getAllVisaTypes($conn);
                                     <td>Subclass <?php echo htmlspecialchars($type['visa_type']); ?></td>
                                     <td>
                                         <?php 
-                                        $current_fy = getCurrentFinancialYearDates()['fy_start_year']; // Get current FY start year
+                                        $current_fy = date('Y');
                                         $current_allocation = array_filter($allocations, function($a) use ($current_fy) {
                                             return $a['financial_year_start'] == $current_fy;
                                         });
-                                        
-                                        if (!empty($current_allocation)) {
-                                            echo number_format(current($current_allocation)['allocation_amount']);
-                                        } else {
-                                            // Check for the most recent allocation
-                                            usort($allocations, function($a, $b) {
-                                                return $b['financial_year_start'] - $a['financial_year_start'];
-                                            });
-                                            
-                                            echo !empty($allocations) 
-                                                ? number_format($allocations[0]['allocation_amount']) . ' (FY' . $allocations[0]['financial_year_start'] . '-' . ($allocations[0]['financial_year_start'] + 1) % 100 . ')'
-                                                : 'Not set';
-                                        }
+                                        echo !empty($current_allocation) ? number_format(current($current_allocation)['allocation_amount']) : 'Not set';
                                         ?>
                                     </td>
                                     <td>
@@ -564,14 +522,12 @@ $visa_types = getAllVisaTypes($conn);
                                     <td class="action-buttons">
                                         <button type="button" 
                                                 onclick="showAllocationModal(<?php echo $type['id']; ?>, '<?php echo $type['visa_type']; ?>')" 
-                                                class="btn btn-secondary">
+                                                class="edit-btn">
                                             Edit Allocation
                                         </button>
                                         <form action="" method="POST" style="display: inline;">
                                             <input type="hidden" name="id" value="<?php echo $type['id']; ?>">
-                                            <button type="submit" 
-                                                    name="delete_visa_type" 
-                                                    class="btn btn-danger" 
+                                            <button type="submit" name="delete_visa_type" class="delete-btn" 
                                                     onclick="return confirm('Are you sure you want to delete this visa type?')">
                                                 Delete
                                             </button>
@@ -626,7 +582,7 @@ $visa_types = getAllVisaTypes($conn);
                 <!-- Add visa type tabs -->
                 <div class="visa-tabs">
                     <?php foreach ($visa_types as $index => $type): ?>
-                        <button class="history-btn <?php echo $index === 0 ? 'active' : ''; ?>"
+                        <button class="visa-tab-btn <?php echo $index === 0 ? 'active' : ''; ?>"
                                 onclick="openVisaTab(event, 'visa_<?php echo $type['id']; ?>')">
                             Subclass <?php echo htmlspecialchars($type['visa_type']); ?>
                         </button>
@@ -669,20 +625,7 @@ $visa_types = getAllVisaTypes($conn);
                     endif;
                 endforeach; 
                 ?>
-            </section>
-        </div>
-
-        <div id="userFeedback" class="tab-content">
-            <section class="admin-section">
-                <h2>User Feedback</h2>
-                <div id="feedbackContainer" class="feedback-list">
-                    <!-- Feedback items will be loaded here -->
-                    <div class="modal-loading">
-                        <div class="modal-spinner"></div>
-                        <div class="modal-loading-text">Loading feedback data...</div>
-                    </div>
-                </div>
-            </section>
+        </section>
         </div>
     </div>
     <script>
@@ -710,13 +653,7 @@ $visa_types = getAllVisaTypes($conn);
 
     // Initialize Chart.js if needed
     function initializeChart(queueData) {
-        const canvas = document.getElementById('processingTrends');
-        if (!canvas) {
-            console.log('Chart canvas not found, skipping chart initialization');
-            return;
-        }
-        
-        const ctx = canvas.getContext('2d');
+        const ctx = document.getElementById('processingTrends').getContext('2d');
         
         // Prepare data
         const datasets = queueData.map(lodgement => ({
@@ -776,84 +713,14 @@ $visa_types = getAllVisaTypes($conn);
         });
     }
 
-    // Update the form submission handler
+    // Form submission handler for import
     function startImport(form) {
-        // Show loading overlay
-        const loadingOverlay = document.getElementById('loading-overlay');
-        loadingOverlay.style.display = 'flex';
-        
-        // Create FormData object
-        const formData = new FormData(form);
-        
-        // Add debug logging
-        console.log('Sending import request with data:', Object.fromEntries(formData));
-        
-        // Make the fetch request
-        fetch('handle_import.php', {
-            method: 'POST',
-            body: formData
-        })
-        .then(async response => {
-            const text = await response.text();
-            console.log('Raw server response:', text);
-            try {
-                return JSON.parse(text);
-            } catch (e) {
-                console.error('Failed to parse JSON response:', text);
-                console.error('Parse error:', e);
-                throw new Error('Server returned invalid JSON response');
-            }
-        })
-        .then(data => {
-            console.log('Import response:', data);
-            if (data.status === 'success') {
-                showMessage(data.message || 'Import completed successfully', 'success');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
-            } else {
-                throw new Error(data.message || 'Import failed');
-            }
-        })
-        .catch(error => {
-            console.error('Import error:', error);
-            showMessage('Import failed: ' + error.message, 'error');
-        })
-        .finally(() => {
-            loadingOverlay.style.display = 'none';
-        });
-        
-        return false; // Prevent default form submission
-    }
-
-    // Add message display function
-    function showMessage(message, type = 'success') {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}`;
-        messageDiv.textContent = message;
-        
-        // Remove any existing messages
-        const existingMessages = document.querySelectorAll('.message');
-        existingMessages.forEach(msg => msg.remove());
-        
-        // Add new message to the top of the container
-        const container = document.querySelector('.container');
-        container.insertBefore(messageDiv, container.firstChild);
-        
-        // Auto-remove message after 5 seconds
-        setTimeout(() => {
-            messageDiv.remove();
-        }, 5000);
+        document.getElementById('loading-overlay').style.display = 'flex';
+        return true;
     }
 
     <?php if (isset($queue_data) && $queue_data): ?>
-        // Add this check before calling initializeChart
-        document.addEventListener('DOMContentLoaded', function() {
-            const queueData = <?php echo json_encode($queue_data['lodgements'] ?? []); ?>;
-            if (queueData && document.getElementById('processingTrends')) {
-                initializeChart(queueData);
-            }
-        });
+        initializeChart(<?php echo json_encode($queue_data['lodgements']); ?>);
     <?php endif; ?>
     </script>
 
@@ -942,210 +809,55 @@ $visa_types = getAllVisaTypes($conn);
 
  
 
-    <!-- Edit Visa Allocations Modal -->
+    <!-- Add this modal HTML before the closing body tag -->
     <div id="allocationModal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
-            <div class="visa-header">
-                <h3>Visa Subclass <span id="modalVisaType"></span> Allocations</h3>
-            </div>
-
-            <!-- Add loading indicator -->
-            <div class="modal-loading">
-                <div class="modal-spinner"></div>
-                <div class="modal-loading-text">Loading allocation data...</div>
-            </div>
-
-            <!-- Current Allocations Section -->
-            <div class="allocation-section current-allocations">
-                <h4>Current Allocations</h4>
-                <div id="existingAllocations" class="allocations-list">
-                    <!-- Populated by JavaScript -->
+            <h3>Edit Visa Allocation</h3>
+            <form id="allocationForm" method="POST" class="allocation-form">
+                <input type="hidden" name="visa_type_id" id="modalVisaTypeId">
+                <div class="form-group">
+                    <label>Visa Subclass: <span id="modalVisaType"></span></label>
                 </div>
-            </div>
-
-            <!-- Add New Allocation Section -->
-            <div class="allocation-section new-allocations">
-                <h4>Add/Update Allocation</h4>
-                <div id="availableYears" class="allocations-list">
-                    <!-- Populated by JavaScript -->
+                <div class="form-group">
+                    <label for="financial_year">Financial Year:</label>
+                    <select name="financial_year" id="financial_year" required>
+                        <?php 
+                        $current_year = date('Y');
+                        for($i = $current_year - 1; $i <= $current_year + 1; $i++) {
+                            echo "<option value='$i'>$i-" . ($i + 1) . "</option>";
+                        }
+                        ?>
+                    </select>
                 </div>
-            </div>
+                <div class="form-group">
+                    <label for="allocation_amount">Allocation Amount:</label>
+                    <input type="number" name="allocation_amount" id="allocation_amount" required min="0">
+                </div>
+                <button type="submit" name="update_allocation" class="primary-btn">Save Allocation</button>
+            </form>
         </div>
     </div>
 
-    <!-- Update the JavaScript -->
+    <!-- Add this JavaScript before the closing body tag -->
     <script>
-    let visaTypeId = null;
-
-    function showAllocationModal(typeId, visaType) {
-        console.log('Opening modal for visa type:', visaType, 'ID:', typeId);
-        visaTypeId = typeId;
+    function showAllocationModal(visaTypeId, visaType) {
         const modal = document.getElementById('allocationModal');
-        const modalContent = modal.querySelector('.modal-content');
-        const loadingElement = modal.querySelector('.modal-loading');
+        document.getElementById('modalVisaTypeId').value = visaTypeId;
         document.getElementById('modalVisaType').textContent = visaType;
         
-        // Show modal and set loading state
-        modal.style.display = "block";
-        modalContent.classList.add('loading');
-        loadingElement.style.display = "block"; // Show loading spinner
-        
-        // Fetch existing allocations
-        fetchAllocations()
-            .then(response => {
-                console.log('Allocation response:', response);
-                modalContent.classList.remove('loading');
-                loadingElement.style.display = "none"; // Hide loading spinner
-            })
-            .catch(error => {
-                console.error('Error fetching allocations:', error);
-                modalContent.classList.remove('loading');
-                loadingElement.style.display = "none"; // Hide loading spinner
-                document.getElementById('existingAllocations').innerHTML = 
-                    '<div class="error">Error loading allocation data. Please try again.</div>';
-            });
-    }
-
-    function fetchAllocations() {
-        return fetch(`get_allocations.php?visa_type_id=${visaTypeId}`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
+        // Get current allocation if exists
+        fetch(`get_allocation.php?visa_type_id=${visaTypeId}&year=${document.getElementById('financial_year').value}`)
+            .then(response => response.json())
             .then(data => {
-                console.log('Received allocation data:', data);
-                if (data.status === 'success') {
-                    populateAllocations(data.allocations);
-                    populateAvailableYears(data.allocations);
+                if (data.status === 'success' && data.allocation) {
+                    document.getElementById('allocation_amount').value = data.allocation.allocation_amount;
                 } else {
-                    throw new Error(data.message || 'Failed to fetch allocations');
+                    document.getElementById('allocation_amount').value = '';
                 }
-                return data;
             });
-    }
-
-    function populateAllocations(allocations) {
-        const container = document.getElementById('existingAllocations');
-        container.innerHTML = '';
-
-        // Sort allocations by year descending
-        allocations.sort((a, b) => b.financial_year_start - a.financial_year_start);
-
-        allocations.forEach(allocation => {
-            const row = document.createElement('div');
-            row.className = 'allocation-row existing';
-            row.innerHTML = `
-                <span class="year-label">FY${allocation.financial_year_start}-${(allocation.financial_year_start + 1) % 100}</span>
-                <input type="number" 
-                       class="allocation-input"
-                       value="${allocation.allocation_amount}"
-                       onchange="enableSaveButton(this)"
-                       data-original="${allocation.allocation_amount}"
-                       data-year="${allocation.financial_year_start}">
-                <div>
-                    <button class="save-btn" 
-                            onclick="saveAllocation(this, ${allocation.financial_year_start})" 
-                            disabled>
-                        Save
-                    </button>
-                    <span class="save-status"></span>
-                </div>
-            `;
-            container.appendChild(row);
-        });
-    }
-
-    function populateAvailableYears(existingAllocations) {
-        const container = document.getElementById('availableYears');
-        container.innerHTML = '';
         
-        const currentYear = new Date().getFullYear();
-        const existingYears = existingAllocations.map(a => a.financial_year_start);
-        
-        // Show last 5 financial years
-        for (let i = 0; i < 5; i++) {
-            const year = currentYear - i;
-            if (!existingYears.includes(year)) {
-                const row = document.createElement('div');
-                row.className = 'allocation-row';
-                row.innerHTML = `
-                    <span class="year-label">FY${year}-${(year + 1) % 100}</span>
-                    <input type="number" 
-                           class="allocation-input"
-                           placeholder="Enter allocation"
-                           onchange="enableSaveButton(this)"
-                           data-year="${year}">
-                    <div>
-                        <button class="save-btn" 
-                                onclick="saveAllocation(this, ${year})" 
-                                disabled>
-                            Save
-                        </button>
-                        <span class="save-status"></span>
-                    </div>
-                `;
-                container.appendChild(row);
-            }
-        }
-    }
-
-    function enableSaveButton(input) {
-        const btn = input.parentElement.querySelector('.save-btn');
-        const originalValue = input.dataset.original;
-        
-        if (originalValue) {
-            // For existing allocations
-            btn.disabled = input.value === originalValue;
-        } else {
-            // For new allocations
-            btn.disabled = !input.value;
-        }
-    }
-
-    function saveAllocation(btn, year) {
-        const row = btn.closest('.allocation-row');
-        const input = row.querySelector('.allocation-input');
-        const statusSpan = row.querySelector('.save-status');
-        
-        btn.disabled = true;
-        statusSpan.className = 'save-status';
-        statusSpan.textContent = 'Saving...';
-
-        fetch('save_allocation.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                visa_type_id: visaTypeId,
-                year: year,
-                amount: parseInt(input.value)
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                statusSpan.className = 'save-status success';
-                statusSpan.textContent = '✓ Saved';
-                input.dataset.original = input.value;
-                
-                // Refresh allocations after short delay
-                setTimeout(() => {
-                    fetchAllocations();
-                    statusSpan.textContent = '';
-                }, 1500);
-            } else {
-                throw new Error(data.message || 'Save failed');
-            }
-        })
-        .catch(error => {
-            statusSpan.className = 'save-status error';
-            statusSpan.textContent = '✗ ' + error.message;
-            btn.disabled = false;
-        });
+        modal.style.display = "block";
     }
 
     // Close modal functionality
@@ -1182,156 +894,8 @@ $visa_types = getAllVisaTypes($conn);
     }
     </script>
 
-    <!-- Add this JavaScript function to handle the visa type selection -->
-    <script>
-    function handleVisaTypeChange(selectElement) {
-        // Show loading spinner
-        const viewSection = document.querySelector('.data-view-section');
-        viewSection.innerHTML += `
-            <div class="modal-loading" id="queueDataLoading">
-                <div class="modal-spinner"></div>
-                <div class="modal-loading-text">Loading queue data...</div>
-            </div>
-        `;
-        
-        // Stay on current tab
-        const currentTab = document.querySelector('.tab-content[style*="block"]').id;
-        
-        // Add tab to URL
-        const url = new URL(window.location.href);
-        url.searchParams.set('visa_type', selectElement.value);
-        url.searchParams.set('tab', currentTab);
-        
-        // Navigate to new URL
-        window.location.href = url.toString();
-    }
+    
 
-    // Function to handle initial load and tab selection
-    document.addEventListener('DOMContentLoaded', function() {
-        // Get tab from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const tabParam = urlParams.get('tab');
-        
-        if (tabParam) {
-            switchTab(tabParam);
-        }
-    });
-    </script>
-
-    <script>
-    function loadFeedback() {
-        const container = document.getElementById('feedbackContainer');
-        if (!container) {
-            console.error('Feedback container not found');
-            return;
-        }
-
-        // Show loading state
-        container.innerHTML = `
-            <div class="modal-loading">
-                <div class="modal-spinner"></div>
-                <div class="modal-loading-text">Loading feedback data...</div>
-            </div>
-        `;
-
-        fetch('get_feedback.php')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                // Log headers for debugging
-                console.log('Response headers:', 
-                    Array.from(response.headers.entries())
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join('\n')
-                );
-                return response.text().then(text => {
-                    // Log raw response for debugging
-                    console.log('Raw response length:', text.length);
-                    console.log('First 100 characters:', text.substring(0, 100));
-                    try {
-                        if (!text.trim()) {
-                            throw new Error('Empty response from server');
-                        }
-                        return JSON.parse(text);
-                    } catch (e) {
-                        console.error('Parse error:', e);
-                        console.error('Raw response:', text);
-                        throw new Error(`Invalid JSON response from server: ${e.message}`);
-                    }
-                });
-            })
-            .then(data => {
-                console.log('Parsed data:', data);
-                if (data.status === 'success') {
-                    displayFeedback(data.data);
-                } else {
-                    throw new Error(data.message || 'Failed to load feedback');
-                }
-            })
-            .catch(error => {
-                console.error('Error loading feedback:', error);
-                container.innerHTML = `
-                    <div class="error-message">
-                        Error loading feedback: ${error.message}<br>
-                        <small>Check console for more details</small>
-                    </div>
-                `;
-            });
-    }
-
-    function displayFeedback(feedback) {
-        const container = document.getElementById('feedbackContainer');
-        if (!container) {
-            console.error('Feedback container not found');
-            return;
-        }
-
-        if (!feedback || feedback.length === 0) {
-            container.innerHTML = '<p class="no-feedback">No feedback available.</p>';
-            return;
-        }
-        
-        const feedbackHtml = feedback.map(item => {
-            const date = new Date(item.submitted_at).toLocaleDateString();
-            const analysisHtml = item.analysis 
-                ? `<div class="feedback-analysis">
-                     <h4>Analysis:</h4>
-                     <pre>${JSON.stringify(item.analysis, null, 2)}</pre>
-                   </div>`
-                : '';
-                
-            return `
-                <div class="feedback-item">
-                    <div class="feedback-header">
-                        <span class="feedback-date">${date}</span>
-                        ${item.theme ? `<span class="feedback-theme">${item.theme}</span>` : ''}
-                    </div>
-                    <div class="feedback-text">${item.feedback_text}</div>
-                    ${analysisHtml}
-                </div>
-            `;
-        }).join('');
-        
-        container.innerHTML = feedbackHtml;
-    }
-    </script>
-
-    <script>
-    function openFeedbackTab(button) {
-        // Clear any existing messages or session data
-        fetch('clear_session.php?type=feedback')
-            .then(() => {
-                // Create a synthetic event object with the button as currentTarget
-                const syntheticEvent = { currentTarget: button };
-                // Switch to the feedback tab
-                openTab(syntheticEvent, 'userFeedback');
-                // Load the feedback data
-                loadFeedback();
-            })
-            .catch(error => console.error('Error clearing session:', error));
-    }
-    </script>
 
 </body>
 </html> 

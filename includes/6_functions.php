@@ -115,21 +115,10 @@ function validateImportFile($file) {
  * @location Admin Panel > Import Data tab
  */
 function processVisaQueueImport($file_info, $delimiter) {
-    error_log("Starting processVisaQueueImport");
-    error_log("File info: " . print_r($file_info, true));
+    global $conn;
     
     try {
-        if (!isset($file_info['tmp_name']) || !file_exists($file_info['tmp_name'])) {
-            throw new Exception('Import file not found');
-        }
-        
-        if (!isset($file_info['visa_type'])) {
-            throw new Exception('Visa type not specified');
-        }
-        
-        global $conn;
-        
-        // Start transaction
+        // Start transaction (mysqli version)
         mysqli_begin_transaction($conn);
         
         // Get visa type ID
@@ -185,24 +174,10 @@ function processVisaQueueImport($file_info, $delimiter) {
             $formatted_months[$i] = $date->format('Y-m-d');
         }
         
-        // Check for duplicate data
-        $duplicates = [];
-        foreach ($formatted_months as $month) {
-            mysqli_stmt_bind_param($findLodgementIdStmt, "si", $month, $visaTypeId);
-            mysqli_stmt_execute($findLodgementIdStmt);
-            $existing = mysqli_stmt_get_result($findLodgementIdStmt);
-            if (mysqli_fetch_assoc($existing)) {
-                $duplicates[] = date('M Y', strtotime($month));
-            }
-        }
-        
-        if (!empty($duplicates)) {
-            throw new Exception("Data already exists for the following months: " . implode(", ", $duplicates));
-        }
-        
         $stats = [
             'lodgements_created' => 0,
             'queue_updates' => 0,
+            'skipped_updates' => 0,
             'rows_processed' => 0
         ];
         
@@ -239,18 +214,56 @@ function processVisaQueueImport($file_info, $delimiter) {
                 if ($value === '<5' || is_numeric($value)) {
                     $queue_count = ($value === '<5') ? 0 : intval($value);
                     
-                    // Create new lodgement with maximum count for this column
-                    mysqli_stmt_bind_param($createLodgementStmt, "ssi", $formatted_months[$i], $visaTypeId, $max_counts[$i]);
-                    if (!mysqli_stmt_execute($createLodgementStmt)) {
-                        throw new Exception("Failed to create lodgement: " . mysqli_stmt_error($createLodgementStmt));
-                    }
-                    $lodgementId = mysqli_insert_id($conn);
-                    $stats['lodgements_created']++;
+                    // Check if lodgement exists
+                    mysqli_stmt_bind_param($findLodgementIdStmt, "ss", $formatted_months[$i], $visaTypeId);
+                    mysqli_stmt_execute($findLodgementIdStmt);
+                    $existing = mysqli_stmt_get_result($findLodgementIdStmt);
+                    $existing_row = mysqli_fetch_assoc($existing);
                     
-                    // Add queue update
-                    mysqli_stmt_bind_param($createQueueUpdateStmt, "isi", $lodgementId, $update_month, $queue_count);
-                    mysqli_stmt_execute($createQueueUpdateStmt);
-                    $stats['queue_updates']++;
+                    $lodgementId = null;
+                    if (!$existing_row) {
+                        // Create new lodgement with maximum count for this column
+                        mysqli_stmt_bind_param($createLodgementStmt, "ssi", $formatted_months[$i], $visaTypeId, $max_counts[$i]);
+                        if (!mysqli_stmt_execute($createLodgementStmt)) {
+                            throw new Exception("Failed to create lodgement: " . mysqli_stmt_error($createLodgementStmt));
+                        }
+                        $lodgementId = mysqli_insert_id($conn);
+                        $stats['lodgements_created']++;
+                    } else {
+                        $lodgementId = $existing_row['id'];
+                    }
+                    
+                    // Validate lodgementId before using it
+                    if (!$lodgementId) {
+                        throw new Exception("Invalid lodgement ID for month: " . $formatted_months[$i]);
+                    }
+                    
+                    // Check if this update already exists
+                    mysqli_stmt_bind_param($findQueueUpdateStmt, "ss", $lodgementId, $update_month);
+                    mysqli_stmt_execute($findQueueUpdateStmt);
+                    $existing = mysqli_stmt_get_result($findQueueUpdateStmt);
+                    $existing_row = mysqli_fetch_assoc($existing);
+                    if (!$existing_row) {
+                        // Only add new updates
+                        mysqli_stmt_bind_param($createQueueUpdateStmt, "sss", $lodgementId, $update_month, $queue_count);
+                        mysqli_stmt_execute($createQueueUpdateStmt);
+                        $stats['queue_updates']++;
+                    } else {
+                        // Check if the queue count has changed
+                        if ($existing_row['queue_count'] != $queue_count) {
+                            // Update the existing record
+                            $updateQueueStmt = mysqli_prepare($conn, "
+                                UPDATE visa_queue_updates 
+                                SET queue_count = ? 
+                                WHERE lodged_month_id = ? AND update_month = ?
+                            ");
+                            mysqli_stmt_bind_param($updateQueueStmt, "iss", $queue_count, $lodgementId, $update_month);
+                            mysqli_stmt_execute($updateQueueStmt);
+                            $stats['queue_updates']++;
+                        } else {
+                            $stats['skipped_updates']++;
+                        }
+                    }
                 }
             }
             $stats['rows_processed']++;
@@ -262,22 +275,26 @@ function processVisaQueueImport($file_info, $delimiter) {
         return [
             'status' => 'success',
             'message' => sprintf(
-                'Import completed successfully. Created %d lodgements and %d queue updates.',
+                "Successfully imported visa type %s:\n" .
+                "- %d rows processed\n" .
+                "- %d new lodgements created\n" .
+                "- %d new queue updates added\n" .
+                "- %d duplicate updates skipped",
+                $file_info['visa_type'],
+                $stats['rows_processed'],
                 $stats['lodgements_created'],
-                $stats['queue_updates']
+                $stats['queue_updates'],
+                $stats['skipped_updates']
             )
         ];
         
     } catch (Exception $e) {
-        if (isset($conn)) {
-            mysqli_rollback($conn);
-        }
-        if (isset($handle)) {
-            fclose($handle);
-        }
-        error_log("Import processing failed: " . $e->getMessage());
-        error_log("Stack trace: " . $e->getTraceAsString());
-        throw $e;
+        mysqli_rollback($conn);
+        error_log("Import error: " . $e->getMessage());
+        return [
+            'status' => 'error',
+            'message' => "Error importing data: " . $e->getMessage()
+        ];
     }
 }
 
@@ -2076,34 +2093,23 @@ function getVisaQueueData($visa_type_id) {
             return false;
         }
 
-        // Modified query to ensure we get only unique lodgement months
+        // Get all lodgement months and their updates
         $query = "
-            WITH RankedLodgements AS (
-                SELECT 
-                    vl.id,
-                    vl.lodged_month,
-                    vl.first_count_volume as first_count,
-                    JSON_ARRAYAGG(
-                        JSON_OBJECT(
-                            'update_month', vqu.update_month,
-                            'queue_count', vqu.queue_count
-                        )
-                    ) as updates,
-                    ROW_NUMBER() OVER (PARTITION BY vl.lodged_month ORDER BY vl.first_count_volume DESC, vl.id DESC) as rn
-                FROM visa_lodgements vl
-                LEFT JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
-                WHERE vl.visa_type_id = ?
-                AND vl.first_count_volume > 0
-                GROUP BY vl.id, vl.lodged_month, vl.first_count_volume
-            )
             SELECT 
-                id,
-                lodged_month,
-                first_count,
-                updates
-            FROM RankedLodgements
-            WHERE rn = 1
-            ORDER BY lodged_month DESC
+                vl.id,
+                vl.lodged_month,
+                vl.first_count_volume as first_count,
+                JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'update_month', vqu.update_month,
+                        'queue_count', vqu.queue_count
+                    )
+                ) as updates
+            FROM visa_lodgements vl
+            LEFT JOIN visa_queue_updates vqu ON vl.id = vqu.lodged_month_id
+            WHERE vl.visa_type_id = ?
+            GROUP BY vl.id, vl.lodged_month, vl.first_count_volume
+            ORDER BY vl.lodged_month DESC
         ";
 
         $stmt = mysqli_prepare($conn, $query);
@@ -2114,12 +2120,6 @@ function getVisaQueueData($visa_type_id) {
         $lodgements = [];
         while ($row = mysqli_fetch_assoc($result)) {
             $row['updates'] = json_decode($row['updates'], true);
-            $latest_update = end($row['updates']);
-            $row['latest_count'] = $latest_update ? $latest_update['queue_count'] : 0;
-            $row['movement'] = $row['first_count'] - $row['latest_count'];
-            $row['processing_rate'] = $row['first_count'] > 0 
-                ? round(($row['movement'] / $row['first_count']) * 100, 1)
-                : 0;
             $lodgements[] = $row;
         }
 
@@ -3099,205 +3099,6 @@ function calculateProcessingTrend($current_rate, $previous_rate) {
     if ($previous_rate == 0) return 0;
     $percentage_change = (($current_rate - $previous_rate) / $previous_rate) * 100;
     return round($percentage_change, 1);
-}
-
-/**
- * Clear Admin Session Data
- * 
- * @description Clears specific session data based on the provided type
- * @param string|null $type The type of session data to clear ('import', 'feedback', etc.) or null for all
- */
-function clearAdminSession($type = null) {
-    if ($type === null) {
-        // Clear all admin-related session data
-        unset($_SESSION['import_preview']);
-        unset($_SESSION['message']);
-        unset($_SESSION['feedback_data']);
-        // Add any other session keys that need clearing
-    } else {
-        // Clear specific session data
-        switch ($type) {
-            case 'import':
-                unset($_SESSION['import_preview']);
-                break;
-            case 'feedback':
-                unset($_SESSION['feedback_data']);
-                break;
-            case 'message':
-                unset($_SESSION['message']);
-                break;
-        }
-    }
-}
-
-function cleanupDuplicateLodgements($visa_type_id) {
-    global $conn;
-    
-    try {
-        mysqli_begin_transaction($conn);
-        
-        // First, identify duplicates and keep only the one with the highest first_count_volume
-        $query = "
-            DELETE vl1 FROM visa_lodgements vl1
-            INNER JOIN (
-                SELECT lodged_month, visa_type_id, MAX(first_count_volume) as max_count
-                FROM visa_lodgements
-                WHERE visa_type_id = ?
-                GROUP BY lodged_month, visa_type_id
-            ) vl2 ON vl1.lodged_month = vl2.lodged_month 
-                AND vl1.visa_type_id = vl2.visa_type_id
-                AND vl1.first_count_volume < vl2.max_count;
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        
-        // Then, if there are still duplicates, keep only the most recent one (highest ID)
-        $query = "
-            DELETE vl1 FROM visa_lodgements vl1
-            INNER JOIN visa_lodgements vl2 ON 
-                vl1.lodged_month = vl2.lodged_month
-                AND vl1.visa_type_id = vl2.visa_type_id
-                AND vl1.id < vl2.id
-            WHERE vl1.visa_type_id = ?;
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        
-        // Delete any entries with first_count_volume = 0
-        $query = "
-            DELETE FROM visa_lodgements 
-            WHERE visa_type_id = ? 
-            AND first_count_volume = 0;
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, "i", $visa_type_id);
-        mysqli_stmt_execute($stmt);
-        
-        mysqli_commit($conn);
-        return true;
-        
-    } catch (Exception $e) {
-        mysqli_rollback($conn);
-        error_log("Error cleaning up duplicates: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Get User Feedback
- * 
- * @description Retrieves user feedback with analysis data
- * @param int $limit Optional limit on number of records to return
- * @return array Array of feedback records
- */
-function getUserFeedback($limit = null) {
-    global $conn;
-    
-    try {
-        $query = "
-            SELECT 
-                feedback_id,
-                user_id,
-                feedback_text,
-                submitted_at,
-                theme,
-                analysis_json
-            FROM user_feedback 
-            ORDER BY submitted_at DESC
-        ";
-        
-        if ($limit) {
-            $query .= " LIMIT ?";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, "i", $limit);
-        } else {
-            $stmt = mysqli_prepare($conn, $query);
-        }
-        
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        
-        $feedback = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            // Handle the analysis_json field
-            if ($row['analysis_json']) {
-                try {
-                    $row['analysis'] = json_decode($row['analysis_json'], true);
-                } catch (Exception $e) {
-                    error_log("Error decoding analysis JSON for feedback ID {$row['feedback_id']}: " . $e->getMessage());
-                    $row['analysis'] = null;
-                }
-            } else {
-                $row['analysis'] = null;
-            }
-            unset($row['analysis_json']); // Remove the raw JSON from the output
-            
-            $feedback[] = $row;
-        }
-        
-        return [
-            'status' => 'success',
-            'data' => $feedback
-        ];
-        
-    } catch (Exception $e) {
-        error_log("Error getting feedback: " . $e->getMessage());
-        return [
-            'status' => 'error',
-            'message' => 'Failed to retrieve feedback'
-        ];
-    }
-}
-
-/**
- * Save User Feedback
- * 
- * @description Saves user feedback with optional analysis data
- * @param array $data Feedback data including text and optional theme
- * @return array Status of the save operation
- */
-function saveUserFeedback($data) {
-    global $conn;
-    
-    try {
-        $query = "
-            INSERT INTO user_feedback 
-            (user_id, feedback_text, theme, analysis_json) 
-            VALUES (?, ?, ?, ?)
-        ";
-        
-        $stmt = mysqli_prepare($conn, $query);
-        $user_id = $data['user_id'] ?? 0;
-        $analysis_json = isset($data['analysis']) ? json_encode($data['analysis']) : null;
-        
-        mysqli_stmt_bind_param($stmt, "isss", 
-            $user_id,
-            $data['feedback_text'],
-            $data['theme'],
-            $analysis_json
-        );
-        
-        if (mysqli_stmt_execute($stmt)) {
-            return [
-                'status' => 'success',
-                'message' => 'Feedback saved successfully'
-            ];
-        } else {
-            throw new Exception(mysqli_error($conn));
-        }
-        
-    } catch (Exception $e) {
-        error_log("Error saving feedback: " . $e->getMessage());
-        return [
-            'status' => 'error',
-            'message' => 'Failed to save feedback'
-        ];
-    }
 }
 
 // Continue with other core functions...
