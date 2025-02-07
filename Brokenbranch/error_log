@@ -1,0 +1,20 @@
+[28-Jan-2025 12:40:39 UTC] Database connection successful
+[28-Jan-2025 12:40:39 UTC] Test query result: successful
+[28-Jan-2025 12:40:39 UTC] About to fetch visa subclasses
+[28-Jan-2025 12:40:39 UTC] Visa subclasses returned: Array
+(
+    [0] => Array
+        (
+            [code] => 9
+            [name] => 190
+        )
+
+)
+
+[28-Jan-2025 12:40:39 UTC] Starting date calculations
+[28-Jan-2025 12:40:39 UTC] PHP Fatal error:  Uncaught TypeError: mysqli_prepare(): Argument #1 ($mysql) must be of type mysqli, string given in /home/whenamg8k3e4/public_html/includes/functions.php:1804
+Stack trace:
+#0 /home/whenamg8k3e4/public_html/includes/functions.php(1804): mysqli_prepare('9', '\n        SELECT...')
+#1 /home/whenamg8k3e4/public_html/index.php(30): getOldestLodgementDate('9', Object(mysqli))
+#2 {main}
+  thrown in /home/whenamg8k3e4/public_html/includes/functions.php on line 1804
